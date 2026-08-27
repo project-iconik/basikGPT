@@ -168,3 +168,73 @@ class GPT(nn.Module):
         logits = self.lm_head(x)
 
         return logits
+
+    def forward_cached(
+        self,
+        input_ids: torch.Tensor,
+        past_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...] | None = None,
+    ) -> tuple[torch.Tensor, tuple[tuple[torch.Tensor, torch.Tensor], ...]]:
+        """Forward pass of the GPT language model supporting per-layer Key/Value caching.
+
+        Args:
+            input_ids: 2D integer tensor of token IDs with shape (B, T), where T is prompt length (Prefill) or 1 (Decode).
+            past_key_values: Optional tuple of length n_layers containing (past_k, past_v) tuples.
+
+        Returns:
+            Tuple of (logits, present_key_values) where logits has shape (B, T, V) and
+            present_key_values is a tuple of length n_layers containing updated (k, v) cache tensors.
+
+        Raises:
+            TypeError: If input_ids is floating-point.
+            ValueError: If input_ids is not 2D, or if total sequence length exceeds context_length,
+                        or if past_key_values length does not match n_layers.
+        """
+        if input_ids.is_floating_point():
+            raise TypeError(
+                f"Expected integer tensor for input_ids, got floating point dtype {input_ids.dtype}."
+            )
+
+        if input_ids.ndim != 2:
+            raise ValueError(
+                f"Expected 2D input tensor of shape (batch_size, sequence_length), "
+                f"got {input_ids.ndim}D tensor with shape {tuple(input_ids.shape)}."
+            )
+
+        B, T = input_ids.shape
+
+        past_len = 0
+        if past_key_values is not None:
+            if len(past_key_values) != self.config.n_layers:
+                raise ValueError(
+                    f"Expected past_key_values of length {self.config.n_layers}, got length {len(past_key_values)}."
+                )
+            past_len = past_key_values[0][0].shape[-2]
+
+        total_len = past_len + T
+        if total_len > self.config.context_length:
+            raise ValueError(
+                f"Total sequence length total_len={total_len} exceeds maximum configured context length {self.config.context_length}."
+            )
+
+        # Step 1: Position indices with exact offset: [past_len, past_len + 1, ..., past_len + T - 1]
+        positions = torch.arange(past_len, total_len, dtype=torch.long, device=input_ids.device)
+
+        # Step 2: Retrieve embeddings
+        tok_emb = self.wte(input_ids)
+        pos_emb = self.wpe(positions)
+        x = self.drop(tok_emb + pos_emb)
+
+        # Step 3: Pass through L Transformer decoder blocks with KV cache
+        present_key_values = []
+        for i, block in enumerate(self.blocks):
+            layer_past = past_key_values[i] if past_key_values is not None else None
+            x, layer_present = block.forward_cached(x, past_kv=layer_past)
+            present_key_values.append(layer_present)
+
+        # Step 4: Final LayerNorm
+        x = self.ln_f(x)
+
+        # Step 5: Language model head projection -> (B, T, V)
+        logits = self.lm_head(x)
+
+        return logits, tuple(present_key_values)

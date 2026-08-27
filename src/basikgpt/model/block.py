@@ -76,3 +76,22 @@ class TransformerBlock(nn.Module):
         x = x + self.mlp(self.ln_2(x))
 
         return x
+
+    def forward_cached(
+        self,
+        x: torch.Tensor,
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        """Cached forward pass of the Pre-Norm Transformer Block for autoregressive decoding.
+
+        Args:
+            x: Hidden state tensor of shape (B, T, C).
+            past_kv: Optional tuple of (past_key, past_value) for this layer.
+
+        Returns:
+            Tuple of (updated hidden state of shape (B, T, C), (present_key, present_value)).
+        """
+        attn_out, present_kv = self.attn.forward_cached(self.ln_1(x), past_kv=past_kv)
+        x = x + attn_out
+        x = x + self.mlp(self.ln_2(x))
+        return x, present_kv

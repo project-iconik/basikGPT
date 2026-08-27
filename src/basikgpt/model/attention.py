@@ -11,6 +11,8 @@ import torch.nn.functional as F
 
 from basikgpt.config import GPTConfig
 
+type KVCache = tuple[torch.Tensor, torch.Tensor]
+
 
 class CausalSelfAttention(nn.Module):
     """Causal Multi-Head Self-Attention module for GPT-2.
@@ -167,3 +169,100 @@ class CausalSelfAttention(nn.Module):
         y = self.resid_dropout(y)
 
         return y
+
+    def forward_cached(
+        self,
+        x: torch.Tensor,
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        """Cached forward pass of Causal Multi-Head Self-Attention for autoregressive inference.
+
+        Args:
+            x: Input tensor of shape (B, T, C) where T is prompt length (Prefill) or 1 (Decode).
+            past_kv: Optional tuple of (past_key, past_value), each of shape (B, H, T_past, D).
+
+        Returns:
+            Tuple of (output, (present_key, present_value)) where output is (B, T, C) and
+            present_key/value have shape (B, H, T_past + T, D).
+
+        Raises:
+            ValueError: If feature dimension C != d_model or total sequence length exceeds context_length.
+        """
+        B, T, C = x.shape
+        if C != self.d_model:
+            raise ValueError(f"Input feature dimension C={C} does not match model d_model={self.d_model}.")
+
+        # Step 1: Fused QKV projection: (B, T, C) -> (B, T, 3 * C)
+        qkv = self.qkv_proj(x)
+        q, k, v = qkv.chunk(3, dim=-1)
+
+        # Step 2: Head split & transpose: (B, T, C) -> (B, H, T, D)
+        q = q.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+        k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+
+        # Step 3: Append new K, V to past Key/Value cache
+        if past_kv is not None:
+            past_k, past_v = past_kv
+            k = torch.cat([past_k, k], dim=-2)
+            v = torch.cat([past_v, v], dim=-2)
+
+        present_kv = (k, v)
+        T_k = k.shape[-2]
+        if T_k > self.context_length:
+            raise ValueError(
+                f"Total sequence length T_k={T_k} exceeds maximum configured context length {self.context_length}."
+            )
+
+        # Step 4: Attention Computation
+        # - If T == 1 (Decode): single query at index (T_k - 1) attends to all keys 0..T_k-1 (no mask needed)
+        # - If T == T_k (Prefill): square causal attention
+        # - If T > 1 and T_k > T: non-square causal attention with relative position offset
+        if self.attention_backend == "eager":
+            scale = 1.0 / math.sqrt(self.head_dim)
+            scores = (q @ k.transpose(-2, -1)) * scale  # (B, H, T, T_k)
+            if T > 1:
+                q_indices = torch.arange(T_k - T, T_k, device=x.device).unsqueeze(1)
+                k_indices = torch.arange(0, T_k, device=x.device).unsqueeze(0)
+                mask = k_indices <= q_indices  # (T, T_k)
+                scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
+            attn_weights = torch.softmax(scores, dim=-1)
+            dropout_p = self.dropout if self.training else 0.0
+            if dropout_p > 0.0:
+                attn_weights = self.attn_dropout(attn_weights)
+            y = attn_weights @ v
+        elif self.attention_backend == "sdpa":
+            dropout_p = self.dropout if self.training else 0.0
+            if T == 1:
+                y = F.scaled_dot_product_attention(
+                    q, k, v,
+                    dropout_p=dropout_p,
+                    is_causal=False,
+                )
+            elif T == T_k:
+                y = F.scaled_dot_product_attention(
+                    q, k, v,
+                    dropout_p=dropout_p,
+                    is_causal=True,
+                )
+            else:
+                q_indices = torch.arange(T_k - T, T_k, device=x.device).unsqueeze(1)
+                k_indices = torch.arange(0, T_k, device=x.device).unsqueeze(0)
+                attn_mask = k_indices <= q_indices  # (T, T_k)
+                y = F.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=attn_mask,
+                    dropout_p=dropout_p,
+                    is_causal=False,
+                )
+        else:
+            raise ValueError(f"Unsupported attention backend: '{self.attention_backend}'.")
+
+        # Step 5: Head merge: (B, H, T, D) -> (B, T, C)
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+
+        # Step 6: Output linear projection & dropout
+        y = self.out_proj(y)
+        y = self.resid_dropout(y)
+
+        return y, present_kv

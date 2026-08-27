@@ -91,6 +91,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to save generation metadata JSON",
     )
+    parser.add_argument(
+        "--use-cache",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable Key-Value Caching for fast single-token decoding (default: True, use --no-use-cache to disable)",
+    )
 
     return parser.parse_args()
 
@@ -122,6 +128,7 @@ def main() -> None:
     print(f"  Parameters:   {model.num_parameters():,}")
     print(f"  Context:      {cfg.context_length}")
     print(f"  Device:       {device}")
+    print(f"  KV Cache:     {'Enabled (Fast O(1) Decoding)' if args.use_cache else 'Disabled (Naive O(N^2) Full-Prefix)'}")
     print(f"  Decoding:     {'Sampling' if args.do_sample else 'Greedy Argmax'}")
     if args.do_sample:
         print(f"  Temperature:  {args.temperature}")
@@ -154,7 +161,7 @@ def main() -> None:
     )
 
     t0 = time.perf_counter()
-    output_ids = generate(model, input_ids, config=gen_config)
+    output_ids = generate(model, input_ids, config=gen_config, use_cache=args.use_cache)
     t1 = time.perf_counter()
 
     generated_tokens = output_ids[0].tolist()[len(prompt_tokens):]
