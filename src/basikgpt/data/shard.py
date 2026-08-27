@@ -162,9 +162,9 @@ class ShardedTokenDataset(Dataset):
             self._shard_arrays.append(mmap_arr)
 
             # A sample of length context_length requires (context_length + 1) tokens
-            if n_tokens > context_length:
-                n_samples = (n_tokens - 1) // self.stride
-                used_tokens = n_samples * self.stride + 1
+            if n_tokens >= context_length + 1:
+                n_samples = (n_tokens - context_length - 1) // self.stride + 1
+                used_tokens = (n_samples - 1) * self.stride + context_length + 1
                 discarded = n_tokens - used_tokens
             else:
                 n_samples = 0

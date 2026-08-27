@@ -159,6 +159,9 @@ def score_completion(
         shift_logits = logits[:, P-1 : T-1, :]  (shape: 1, M, vocab_size)
         shift_targets = tokens[:, P : T]        (shape: 1, M)
     """
+    if not context_tokens:
+        raise ValueError("Context tokens list must contain at least 1 token.")
+
     if not completion_tokens:
         raise ValueError("Completion tokens list must not be empty.")
 
@@ -171,7 +174,7 @@ def score_completion(
     # Left-truncate context tokens if sequence exceeds max_context_length
     total_len = len(context_tokens) + M
     if total_len > max_context_length:
-        keep_context_len = max_context_length - M
+        keep_context_len = max(1, max_context_length - M)
         context_tokens = context_tokens[-keep_context_len:]
 
     full_sequence = context_tokens + completion_tokens

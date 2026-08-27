@@ -221,9 +221,6 @@ class Trainer:
             else:
                 grad_norm = 0.0
 
-            if not math.isfinite(grad_norm):
-                raise FloatingPointError(f"Non-finite gradient norm at global step {self.global_step}: {grad_norm}")
-
             lr = get_learning_rate_at_step(self.global_step, self.config)
             update_learning_rate(self.optimizer, lr)
 

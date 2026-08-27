@@ -112,3 +112,45 @@ def test_multi_shard_continuous_reading(tmp_path: Path) -> None:
     inp_4, tgt_4 = dataset[4]
     assert torch.equal(inp_4, torch.tensor([20, 21, 22, 23], dtype=torch.long))
     assert torch.equal(tgt_4, torch.tensor([21, 22, 23, 24], dtype=torch.long))
+
+
+def test_stride_smaller_and_larger_than_context_length(tmp_path: Path) -> None:
+    """Verifies ShardedTokenDataset calculation and bounds when stride != context_length."""
+    # 1. Stride < Context Length (e.g. n_tokens=16, ctx=10, stride=5)
+    # Expected samples = (16 - 10 - 1) // 5 + 1 = 5 // 5 + 1 = 2
+    # Sample 0: tokens 0..10 (targets 1..11)
+    # Sample 1: tokens 5..15 (targets 6..16)
+    arr = np.arange(0, 16, dtype=np.uint16)
+    np.save(tmp_path / "sliding_test.npy", arr)
+
+    ds = ShardedTokenDataset(tmp_path / "sliding_test.npy", context_length=10, stride=5)
+    assert len(ds) == 2
+    assert ds.discarded_tail_tokens == 0
+
+    x0, y0 = ds[0]
+    assert x0.shape == (10,)
+    assert y0.shape == (10,)
+    assert torch.equal(x0, torch.arange(0, 10, dtype=torch.long))
+    assert torch.equal(y0, torch.arange(1, 11, dtype=torch.long))
+
+    x1, y1 = ds[1]
+    assert x1.shape == (10,)
+    assert y1.shape == (10,)
+    assert torch.equal(x1, torch.arange(5, 15, dtype=torch.long))
+    assert torch.equal(y1, torch.arange(6, 16, dtype=torch.long))
+
+    # 2. Stride > Context Length (e.g. n_tokens=30, ctx=8, stride=12)
+    # Expected samples = (30 - 8 - 1) // 12 + 1 = 21 // 12 + 1 = 2
+    # Sample 0: 0..8 (end=9)
+    # Sample 1: 12..20 (end=21)
+    # used_tokens = 1 * 12 + 8 + 1 = 21, discarded = 30 - 21 = 9
+    arr2 = np.arange(0, 30, dtype=np.uint16)
+    np.save(tmp_path / "strided_test.npy", arr2)
+
+    ds2 = ShardedTokenDataset(tmp_path / "strided_test.npy", context_length=8, stride=12)
+    assert len(ds2) == 2
+    assert ds2.discarded_tail_tokens == 9
+    x_last, y_last = ds2[1]
+    assert x_last.shape == (8,)
+    assert torch.equal(x_last, torch.arange(12, 20, dtype=torch.long))
+

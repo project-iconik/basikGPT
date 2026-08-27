@@ -322,6 +322,25 @@ def test_context_overflow_guardrail() -> None:
     assert isinstance(score.total_log_likelihood, float)
     assert isinstance(score.mean_log_likelihood, float)
 
+    # Extreme truncation: max_length=8, completion=7 -> kept context must be 1 token
+    extreme_completion = [1, 2, 3, 4, 5, 6, 7]  # len 7
+    score_extreme = score_completion(
+        model=model,
+        context_tokens=context_tokens,
+        completion_tokens=extreme_completion,
+        max_context_length=8,
+    )
+    assert score_extreme.token_count == 7
+
+    # Empty context tokens validation
+    with pytest.raises(ValueError, match="Context tokens list must contain at least 1 token"):
+        score_completion(
+            model=model,
+            context_tokens=[],
+            completion_tokens=[1, 2],
+            max_context_length=8,
+        )
+
 
 # =====================================================================
 # 7. Hugging Face Score-Level Parity Test
