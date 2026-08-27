@@ -25,6 +25,7 @@ class GPTConfig:
         layer_norm_eps: Small epsilon constant for LayerNorm numerical stability (default: 1e-5).
         bias: Whether to use learnable additive bias in Linear projections and LayerNorms (GPT-2 default: True).
         attention_backend: Attention computation backend to use ("eager" for educational/reference, "sdpa" for fast training).
+        initializer_range: Standard deviation of the normal distribution for weight initialization (GPT-2 default: 0.02).
     """
 
     vocab_size: int = 50_257
@@ -37,6 +38,7 @@ class GPTConfig:
     layer_norm_eps: float = 1e-5
     bias: bool = True
     attention_backend: AttentionBackend = "eager"
+    initializer_range: float = 0.02
 
     def __post_init__(self) -> None:
         """Validates configuration parameters to prevent invalid model architectures."""
@@ -64,6 +66,10 @@ class GPTConfig:
         if self.attention_backend not in ("eager", "sdpa"):
             raise ValueError(
                 f"attention_backend must be either 'eager' or 'sdpa', got '{self.attention_backend}'."
+            )
+        if self.initializer_range <= 0:
+            raise ValueError(
+                f"initializer_range must be strictly positive, got {self.initializer_range}."
             )
 
     @property
@@ -132,6 +138,22 @@ class GPTConfig:
             return base
         return base + (self.vocab_size * self.d_model)
 
+    def to_dict(self) -> dict[str, object]:
+        """Serializes configuration hyperparameters into a JSON-serializable dictionary."""
+        return {
+            "vocab_size": self.vocab_size,
+            "context_length": self.context_length,
+            "n_layers": self.n_layers,
+            "n_heads": self.n_heads,
+            "d_model": self.d_model,
+            "d_ff": self.d_ff,
+            "dropout": self.dropout,
+            "layer_norm_eps": self.layer_norm_eps,
+            "bias": self.bias,
+            "attention_backend": self.attention_backend,
+            "initializer_range": self.initializer_range,
+        }
+
     @classmethod
     def gpt2_small(cls, **kwargs) -> Self:
         """Canonical GPT-2 Small preset (~124M parameters)."""
@@ -146,6 +168,7 @@ class GPTConfig:
             layer_norm_eps=1e-5,
             bias=True,
             attention_backend="eager",
+            initializer_range=0.02,
         )
         defaults.update(kwargs)
         return cls(**defaults)
@@ -164,6 +187,7 @@ class GPTConfig:
             layer_norm_eps=1e-5,
             bias=True,
             attention_backend="eager",
+            initializer_range=0.02,
         )
         defaults.update(kwargs)
         return cls(**defaults)
@@ -182,6 +206,7 @@ class GPTConfig:
             layer_norm_eps=1e-5,
             bias=True,
             attention_backend="eager",
+            initializer_range=0.02,
         )
         defaults.update(kwargs)
         return cls(**defaults)
@@ -200,6 +225,7 @@ class GPTConfig:
             layer_norm_eps=1e-5,
             bias=True,
             attention_backend="eager",
+            initializer_range=0.02,
         )
         defaults.update(kwargs)
         return cls(**defaults)

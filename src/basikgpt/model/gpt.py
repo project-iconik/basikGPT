@@ -67,30 +67,34 @@ class GPT(nn.Module):
         # Bias is False in standard GPT-2 architecture
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
-        # 7. Weight Tying (Weight Sharing):
-        # Ties the output lm_head weight matrix to the input token embedding matrix wte.weight.
-        # This reduces parameter count by V * C and shares semantic representations.
-        self.lm_head.weight = self.wte.weight
-
-        # 8. Standard GPT-2 Weight Initialization:
-        # Initialize all modules with N(0, 0.02) and LayerNorm with (1.0, 0.0)
+        # 7. Standard GPT-2 Weight Initialization:
+        # Initialize all Linear, Embedding, and LayerNorm modules with N(0, initializer_range^2) and (1.0, 0.0)
         self.apply(self._init_weights)
 
-        # Apply GPT-2 special scaled initialization for residual projection layers
-        # std = 0.02 / sqrt(2 * n_layers) prevents variance explosion across deep residual streams
-        residual_std = 0.02 / math.sqrt(2 * self.config.n_layers)
+        # 8. Apply GPT-2 special scaled initialization for residual projection layers:
+        # std = initializer_range / sqrt(2 * n_layers) prevents variance accumulation across deep residual streams
+        residual_std = self.config.initializer_range / math.sqrt(2 * self.config.n_layers)
         for pn, p in self.named_parameters():
             if pn.endswith("out_proj.weight") or pn.endswith("fc_out.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=residual_std)
 
+        # 9. Weight Tying (Weight Sharing):
+        # Ties output lm_head weight matrix to input token embedding matrix wte.weight.
+        # Calling after initialization ensures single RNG initialization on the shared memory.
+        self.tie_weights()
+
+    def tie_weights(self) -> None:
+        """Ties the language model head weight to the token embedding weight matrix."""
+        self.lm_head.weight = self.wte.weight
+
     def _init_weights(self, module: nn.Module) -> None:
         """Initializes model weights following the canonical GPT-2 normal distribution specification."""
         if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            torch.nn.init.normal_(module.weight, mean=0.0, std=self.config.initializer_range)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            torch.nn.init.normal_(module.weight, mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, nn.LayerNorm):
             torch.nn.init.ones_(module.weight)
             if module.bias is not None:
