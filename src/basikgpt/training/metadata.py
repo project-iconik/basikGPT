@@ -163,13 +163,14 @@ def save_run_summary(
     best_val_loss: float | None = None,
     checkpoint_path: Path | str | None = None,
     error_message: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> Path:
     """Writes the final summary.json file for the training run."""
     dir_path = Path(output_dir)
     dir_path.mkdir(parents=True, exist_ok=True)
 
     summary_payload = {
-        "status": status,  # "completed", "interrupted", "failed"
+        "status": status,  # "completed", "interrupted", "failed", "paused"
         "final_step": final_step,
         "tokens_seen": tokens_seen,
         "elapsed_seconds": elapsed_seconds,
@@ -180,4 +181,6 @@ def save_run_summary(
         "error_message": error_message,
         "finished_at_utc": datetime.now(timezone.utc).isoformat(),
     }
+    if extra:
+        summary_payload.update(extra)
     return atomic_save_json(dir_path / "summary.json", summary_payload)

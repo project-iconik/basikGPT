@@ -56,6 +56,7 @@ class Trainer:
         dataset_manifest_path: Path | str | None = None,
         resume_from: Path | str | None = None,
         overwrite: bool = False,
+        init_weights: Path | str | None = None,
     ) -> None:
         self.config = config
         self.run_name = run_name or Path(config.output_dir).name
@@ -109,6 +110,8 @@ class Trainer:
 
         # 4. Raw model ownership. torch.compile wraps a separate callable; checkpoints stay raw.
         self.raw_model = model.to(self.device)
+        if init_weights is not None:
+            self._load_init_weights(init_weights)
         self.optimizer = configure_optimizers(self.raw_model, self.config)
 
         if self.config.compile:
@@ -127,11 +130,18 @@ class Trainer:
 
         self.global_step = 0
         self.tokens_seen = 0
+        self.data_sample_index = 0
         self.best_val_loss: float | None = None
         self.last_val_loss: float | None = None
+        self.time_to_first_optimizer_step: float | None = None
+        self.train_elapsed_seconds = 0.0
+        self.step_durations: list[float] = []
+        self.cold_compile_seconds: float | None = None
+        self.compile_recompile_info: dict[str, Any] | None = None
 
-        # 5. Save Initial Run Provenance Metadata (always from the uncompiled module)
-        if hasattr(self.raw_model, "config") and self.resume_from is None:
+        # 5. Save run provenance. On resume this refreshes training_config.json
+        # to match the continuing process (e.g. stop_at_step cleared).
+        if hasattr(self.raw_model, "config"):
             save_run_metadata(
                 output_dir=self.output_dir,
                 run_name=self.run_name,
@@ -146,6 +156,97 @@ class Trainer:
         while True:
             for batch in loader:
                 yield batch
+
+    def _sequential_batch_iterator(
+        self,
+        dataset: Any,
+        batch_size: int,
+        start_index: int = 0,
+    ) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+        """Yields sequential full batches, wrapping the dataset, from `start_index`.
+
+        Used when `track_data_sample_index` is enabled so resume can fast-forward
+        by integer sample index instead of replaying a shuffled DataLoader.
+        """
+        n = len(dataset)
+        if n <= 0:
+            raise ValueError("Cannot iterate an empty dataset")
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        index = start_index
+        while True:
+            xs: list[torch.Tensor] = []
+            ys: list[torch.Tensor] = []
+            for _ in range(batch_size):
+                item = dataset[index % n]
+                x, y = item[0], item[1]
+                xs.append(x)
+                ys.append(y)
+                index += 1
+            yield torch.stack(xs, dim=0), torch.stack(ys, dim=0)
+
+    def _make_train_iterator(self) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+        if self.config.track_data_sample_index:
+            dataset = self.train_loader.dataset
+            return self._sequential_batch_iterator(
+                dataset,
+                batch_size=self.config.batch_size,
+                start_index=self.data_sample_index,
+            )
+        return self._infinite_loader(self.train_loader)
+
+    def _load_init_weights(self, path: Path | str) -> None:
+        """Loads a raw state_dict (or checkpoint payload) into `raw_model` before compile."""
+        payload = torch.load(path, map_location=self.device, weights_only=False)
+        if isinstance(payload, dict) and "model_state_dict" in payload:
+            state_dict = payload["model_state_dict"]
+        else:
+            state_dict = payload
+        self.raw_model.load_state_dict(state_dict)
+        if hasattr(self.raw_model, "lm_head") and hasattr(self.raw_model, "wte"):
+            if self.raw_model.lm_head.weight is not self.raw_model.wte.weight:
+                self.raw_model.lm_head.weight = self.raw_model.wte.weight
+
+    def _checkpoint_extra_state(self) -> dict[str, Any]:
+        extra: dict[str, Any] = {}
+        if self.config.track_data_sample_index:
+            extra["data_sample_index"] = self.data_sample_index
+            extra["resume_class"] = "exact-sample-index"
+        else:
+            extra["resume_class"] = "state-continuous"
+        return extra
+
+    def _save_training_checkpoint(self, checkpoint_path: Path) -> Path:
+        return save_checkpoint(
+            checkpoint_path=checkpoint_path,
+            model=self.raw_model,
+            optimizer=self.optimizer,
+            global_step=self.global_step,
+            tokens_seen=self.tokens_seen,
+            training_config=self.config,
+            model_config=getattr(self.raw_model, "config", None),
+            scaler=self.scaler,
+            extra_state=self._checkpoint_extra_state(),
+        )
+
+    def _snapshot_compile_counters(self) -> dict[str, Any] | None:
+        try:
+            from torch._dynamo.utils import counters
+
+            frames = dict(counters["frames"]) if counters["frames"] else {}
+            return {"frames": {str(key): int(value) for key, value in frames.items()}}
+        except Exception:
+            return None
+
+    def _estimate_cold_compile_seconds(self) -> float | None:
+        if not self.config.compile or self.time_to_first_optimizer_step is None:
+            return None
+        later = self.step_durations[1:]
+        if not later:
+            return self.time_to_first_optimizer_step
+        later_sorted = sorted(later)
+        median_later = later_sorted[len(later_sorted) // 2]
+        return max(0.0, self.time_to_first_optimizer_step - median_later)
 
     def _sdpa_context(self):
         """Forces a single SDPA backend when configured; `auto` leaves PyTorch dispatch unchanged."""
@@ -231,6 +332,8 @@ class Trainer:
 
                 step_loss += loss.item() / accum_steps
                 step_tokens += y.numel()
+                if self.config.track_data_sample_index:
+                    self.data_sample_index += y.shape[0]
 
         # Unscale FP16 grads before measuring/clipping so the reported norm is in parameter space.
         if self.scaler is not None:
@@ -279,10 +382,24 @@ class Trainer:
             )
             self.global_step = meta.get("global_step", 0)
             self.tokens_seen = meta.get("tokens_seen", 0)
+            extra = meta.get("extra_state") or {}
+            if self.config.track_data_sample_index:
+                saved_index = extra.get("data_sample_index")
+                if saved_index is None:
+                    saved_index = self.global_step * self.config.batch_size * self.config.gradient_accumulation_steps
+                self.data_sample_index = int(saved_index)
             self._prune_metrics_after_resume(self.global_step)
-            print(f"[Trainer] Resumed from {target_resume} at step {self.global_step}, tokens {self.tokens_seen:,}")
+            print(
+                f"[Trainer] Resumed from {target_resume} at step {self.global_step}, "
+                f"tokens {self.tokens_seen:,}"
+                + (
+                    f", data_sample_index {self.data_sample_index:,}"
+                    if self.config.track_data_sample_index
+                    else ""
+                )
+            )
 
-        data_iter = self._infinite_loader(self.train_loader)
+        data_iter = self._make_train_iterator()
         history: list[dict[str, Any]] = []
 
         gpu_name = torch.cuda.get_device_name(self.device) if self.device.type == "cuda" else None
@@ -314,24 +431,61 @@ class Trainer:
         last_tokens_seen = self.tokens_seen
         last_train_loss: float | None = None
         last_val_loss: float | None = None
+        last_ckpt_path: Path | None = None
+        compile_counters_start = self._snapshot_compile_counters() if self.config.compile else None
+        stop_at = self.config.stop_at_step
+        loop_limit = stop_at if stop_at is not None else self.config.max_steps
 
         try:
-            while self.global_step < self.config.max_steps:
+            if (
+                self.config.eval_at_start
+                and self.val_loader is not None
+                and target_resume is None
+            ):
+                start_val = self.evaluate()
+                last_val_loss = start_val
+                self.last_val_loss = start_val
+                self._append_metrics_record(
+                    {
+                        "type": "val",
+                        "step": self.global_step,
+                        "tokens_seen": self.tokens_seen,
+                        "val_loss": start_val,
+                        "elapsed_seconds": 0.0,
+                    }
+                )
+                print(f"Step {self.global_step:06d}/{self.config.max_steps:06d} | Val: {start_val:.4f}")
+
+            while self.global_step < loop_limit:
+                if self.device.type == "cuda":
+                    torch.cuda.synchronize(self.device)
+                step_t0 = time.perf_counter()
                 step_metrics = self.train_step(data_iter)
+                if self.device.type == "cuda":
+                    torch.cuda.synchronize(self.device)
+                step_dt = time.perf_counter() - step_t0
+                self.train_elapsed_seconds += step_dt
+                self.step_durations.append(step_dt)
+                if self.time_to_first_optimizer_step is None:
+                    self.time_to_first_optimizer_step = step_dt
                 last_train_loss = step_metrics["loss"]
 
+                reached_end = self.global_step == self.config.max_steps
+                reached_stop = stop_at is not None and self.global_step == stop_at
                 should_eval = self.val_loader is not None and (
-                    self.global_step % self.config.eval_interval == 0
-                    or self.global_step == self.config.max_steps
+                    self.global_step % self.config.eval_interval == 0 or reached_end or reached_stop
                 )
                 should_log = (
-                    self.global_step % self.config.log_interval == 0
-                    or self.global_step == self.config.max_steps
+                    self.global_step % self.config.log_interval == 0 or reached_end or reached_stop
                 )
-                should_ckpt = (
-                    self.global_step % self.config.checkpoint_interval == 0
-                    or self.global_step == self.config.max_steps
-                )
+                if self.config.checkpoint_steps is not None:
+                    should_ckpt = self.global_step in self.config.checkpoint_steps or reached_stop
+                else:
+                    should_ckpt = (
+                        self.global_step % self.config.checkpoint_interval == 0
+                        or reached_end
+                        or reached_stop
+                    )
 
                 val_loss = None
                 if should_eval:
@@ -341,28 +495,20 @@ class Trainer:
 
                 if should_ckpt:
                     ckpt_path = self.output_dir / f"step-{self.global_step:08d}.pt"
-                    save_checkpoint(
-                        checkpoint_path=ckpt_path,
-                        model=self.raw_model,
-                        optimizer=self.optimizer,
-                        global_step=self.global_step,
-                        tokens_seen=self.tokens_seen,
-                        training_config=self.config,
-                        model_config=getattr(self.raw_model, "config", None),
-                        scaler=self.scaler,
-                    )
+                    self._save_training_checkpoint(ckpt_path)
+                    last_ckpt_path = ckpt_path
 
                 elapsed_total = time.perf_counter() - start_time
+                training_only_tok_s = self.tokens_seen / max(1e-6, self.train_elapsed_seconds)
+                e2e_tok_s = self.tokens_seen / max(1e-6, elapsed_total)
 
                 if should_log:
-                    if self.device.type == "cuda":
-                        torch.cuda.synchronize(self.device)
-
                     now = time.perf_counter()
                     elapsed_since_log = now - last_log_time
                     tokens_delta = self.tokens_seen - last_tokens_seen
                     tok_per_sec = tokens_delta / max(1e-6, elapsed_since_log)
                     elapsed_total = now - start_time
+                    e2e_tok_s = self.tokens_seen / max(1e-6, elapsed_total)
 
                     peak_allocated_vram_bytes = None
                     peak_reserved_vram_bytes = None
@@ -379,12 +525,16 @@ class Trainer:
                         "learning_rate": step_metrics["lr"],
                         "grad_norm": step_metrics["grad_norm"],
                         "tokens_per_sec": tok_per_sec,
+                        "training_only_tokens_per_sec": training_only_tok_s,
+                        "end_to_end_tokens_per_sec": e2e_tok_s,
                         "elapsed_seconds": elapsed_total,
+                        "train_elapsed_seconds": self.train_elapsed_seconds,
+                        "compile": self.config.compile,
+                        "compile_mode": self.config.compile_mode if self.config.compile else None,
                     }
                     if peak_allocated_vram_bytes is not None:
                         train_record["peak_allocated_vram_bytes"] = peak_allocated_vram_bytes
                         train_record["peak_reserved_vram_bytes"] = peak_reserved_vram_bytes
-                        # Allocated bytes expressed in MiB for log readability. Not nvidia-smi usage.
                         train_record["peak_allocated_vram_mib"] = peak_allocated_vram_bytes / (1024 * 1024)
 
                     history.append(train_record)
@@ -413,55 +563,91 @@ class Trainer:
                     )
 
                 if val_loss is not None:
-                    val_record = {
-                        "type": "val",
-                        "step": self.global_step,
-                        "tokens_seen": self.tokens_seen,
-                        "val_loss": val_loss,
-                        "elapsed_seconds": elapsed_total,
-                    }
-                    self._append_metrics_record(val_record)
+                    self._append_metrics_record(
+                        {
+                            "type": "val",
+                            "step": self.global_step,
+                            "tokens_seen": self.tokens_seen,
+                            "val_loss": val_loss,
+                            "elapsed_seconds": elapsed_total,
+                        }
+                    )
 
-            # Final checkpoint & completed summary
-            final_ckpt = self.output_dir / "step-final.pt"
-            save_checkpoint(
-                checkpoint_path=final_ckpt,
-                model=self.raw_model,
-                optimizer=self.optimizer,
-                global_step=self.global_step,
-                tokens_seen=self.tokens_seen,
-                training_config=self.config,
-                model_config=getattr(self.raw_model, "config", None),
-                scaler=self.scaler,
-            )
+            self.cold_compile_seconds = self._estimate_cold_compile_seconds()
+            compile_counters_end = self._snapshot_compile_counters() if self.config.compile else None
+            self.compile_recompile_info = {
+                "counters_start": compile_counters_start,
+                "counters_end": compile_counters_end,
+                "time_to_first_optimizer_step": self.time_to_first_optimizer_step,
+                "cold_compile_seconds": self.cold_compile_seconds,
+                "n_optimizer_steps_timed": len(self.step_durations),
+            }
+            if self.config.compile and len(self.step_durations) > 2:
+                later = self.step_durations[1:]
+                median_later = sorted(later)[len(later) // 2]
+                first = self.step_durations[0]
+                spikes = [
+                    i + 2
+                    for i, dt in enumerate(later)
+                    if median_later > 0 and dt > max(3.0 * median_later, 0.5 * first)
+                ]
+                self.compile_recompile_info["later_step_time_spikes"] = spikes
+                self.compile_recompile_info["possible_repeated_recompile"] = bool(spikes)
+
+            elapsed_total = time.perf_counter() - start_time
+            paused = stop_at is not None and self.global_step < self.config.max_steps
+            status = "paused" if paused else "completed"
+
+            final_ckpt = last_ckpt_path
+            if self.config.save_step_final and not paused:
+                final_ckpt = self.output_dir / "step-final.pt"
+                self._save_training_checkpoint(final_ckpt)
+            elif final_ckpt is None:
+                final_ckpt = self.output_dir / f"step-{self.global_step:08d}.pt"
+                self._save_training_checkpoint(final_ckpt)
+
+            training_only_tok_s = self.tokens_seen / max(1e-6, self.train_elapsed_seconds)
+            e2e_tok_s = self.tokens_seen / max(1e-6, elapsed_total)
+            extra_summary = {
+                "training_only_tokens_per_sec": training_only_tok_s,
+                "end_to_end_tokens_per_sec": e2e_tok_s,
+                "train_elapsed_seconds": self.train_elapsed_seconds,
+                "time_to_first_optimizer_step": self.time_to_first_optimizer_step,
+                "cold_compile_seconds": self.cold_compile_seconds,
+                "compile": self.config.compile,
+                "compile_mode": self.config.compile_mode if self.config.compile else None,
+                "compile_recompile_info": self.compile_recompile_info,
+                "data_sample_index": self.data_sample_index if self.config.track_data_sample_index else None,
+                "resume_class": (
+                    "exact-sample-index" if self.config.track_data_sample_index else "state-continuous"
+                ),
+            }
             save_run_summary(
                 output_dir=self.output_dir,
-                status="completed",
+                status=status,
                 final_step=self.global_step,
                 tokens_seen=self.tokens_seen,
-                elapsed_seconds=time.perf_counter() - start_time,
+                elapsed_seconds=elapsed_total,
                 final_train_loss=last_train_loss,
                 final_val_loss=last_val_loss,
                 best_val_loss=self.best_val_loss,
                 checkpoint_path=final_ckpt,
+                extra=extra_summary,
             )
-            print(f"[Trainer] Training completed successfully. Final checkpoint saved to {final_ckpt}")
+            if paused:
+                print(
+                    f"[Trainer] Paused at step {self.global_step} "
+                    f"(stop_at_step={stop_at}). Checkpoint saved to {final_ckpt}"
+                )
+            else:
+                print(f"[Trainer] Training completed successfully. Final checkpoint saved to {final_ckpt}")
             return history
 
         except KeyboardInterrupt:
             elapsed_total = time.perf_counter() - start_time
             print(f"\n[Trainer] KeyboardInterrupt received. Saving emergency checkpoint at step {self.global_step} ...")
             interrupted_ckpt = self.output_dir / "step-interrupted.pt"
-            save_checkpoint(
-                checkpoint_path=interrupted_ckpt,
-                model=self.raw_model,
-                optimizer=self.optimizer,
-                global_step=self.global_step,
-                tokens_seen=self.tokens_seen,
-                training_config=self.config,
-                model_config=getattr(self.raw_model, "config", None),
-                scaler=self.scaler,
-            )
+            self._save_training_checkpoint(interrupted_ckpt)
             save_run_summary(
                 output_dir=self.output_dir,
                 status="interrupted",

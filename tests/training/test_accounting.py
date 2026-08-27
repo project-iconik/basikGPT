@@ -4,8 +4,10 @@ import pytest
 from basikgpt.training.accounting import (
     TokenBudgetPlan,
     calculate_compile_break_even_tokens,
+    calculate_eval_batches,
     calculate_tokens_seen,
     calculate_training_steps,
+    calculate_warmup_steps,
 )
 
 
@@ -164,3 +166,23 @@ def test_compile_break_even_tokens() -> None:
         calculate_compile_break_even_tokens(1.0, 0.0, 2000.0)
     with pytest.raises(ValueError, match="compiled_tokens_per_second"):
         calculate_compile_break_even_tokens(1.0, 1000.0, -5.0)
+
+
+def test_eval_batches_require_identical_token_count() -> None:
+    """B=8 and B=16 can share 131,072 eval tokens with different batch counts."""
+    eval_tokens = 131_072
+    batches_a = calculate_eval_batches(eval_tokens, micro_batch_size=8, context_length=1024)
+    batches_b = calculate_eval_batches(eval_tokens, micro_batch_size=16, context_length=1024)
+    assert batches_a == 16
+    assert batches_b == 8
+    assert batches_a * 8 * 1024 == batches_b * 16 * 1024 == eval_tokens
+    with pytest.raises(ValueError, match="divisible"):
+        calculate_eval_batches(1000, micro_batch_size=8, context_length=1024)
+
+
+def test_warmup_steps_fraction() -> None:
+    assert calculate_warmup_steps(16, fraction=0.10) == 2
+    assert calculate_warmup_steps(153, fraction=0.10) == 15
+    assert calculate_warmup_steps(1, fraction=0.10) == 1
+    with pytest.raises(ValueError):
+        calculate_warmup_steps(0)

@@ -39,6 +39,11 @@ class TrainingConfig:
     eval_batches: int = 20
     checkpoint_interval: int = 1000
     log_interval: int = 10
+    eval_at_start: bool = False
+    track_data_sample_index: bool = False
+    save_step_final: bool = True
+    stop_at_step: int | None = None
+    checkpoint_steps: tuple[int, ...] | None = None
 
     # Runtime Environment & Precision
     device: str = "auto"
@@ -86,6 +91,21 @@ class TrainingConfig:
             raise ValueError(f"checkpoint_interval must be positive, got {self.checkpoint_interval}")
         if self.log_interval <= 0:
             raise ValueError(f"log_interval must be positive, got {self.log_interval}")
+        if self.stop_at_step is not None:
+            if self.stop_at_step <= 0:
+                raise ValueError(f"stop_at_step must be positive or None, got {self.stop_at_step}")
+            if self.stop_at_step > self.max_steps:
+                raise ValueError(
+                    f"stop_at_step ({self.stop_at_step}) cannot exceed max_steps ({self.max_steps})"
+                )
+        if self.checkpoint_steps is not None:
+            if len(self.checkpoint_steps) == 0:
+                raise ValueError("checkpoint_steps must be non-empty when provided")
+            for step in self.checkpoint_steps:
+                if step <= 0 or step > self.max_steps:
+                    raise ValueError(
+                        f"checkpoint_steps values must be in 1..max_steps, got {self.checkpoint_steps}"
+                    )
         if self.precision not in ("fp32", "bf16", "fp16"):
             raise ValueError(f"precision must be one of 'fp32', 'bf16', 'fp16', got '{self.precision}'")
         validate_compile_mode(self.compile_mode)

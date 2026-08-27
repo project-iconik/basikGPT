@@ -3,8 +3,10 @@
 from basikgpt.training.accounting import (
     TokenBudgetPlan,
     calculate_compile_break_even_tokens,
+    calculate_eval_batches,
     calculate_tokens_seen,
     calculate_training_steps,
+    calculate_warmup_steps,
 )
 from basikgpt.training.checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
@@ -74,6 +76,8 @@ __all__ = [
     "ALLOWED_SDPA_KERNEL_NAMES",
     "calculate_training_steps",
     "calculate_tokens_seen",
+    "calculate_eval_batches",
+    "calculate_warmup_steps",
     "calculate_compile_break_even_tokens",
     "TokenBudgetPlan",
 ]

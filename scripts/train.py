@@ -14,7 +14,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from basikgpt.config import GPTConfig
 from basikgpt.data.shard import ShardedTokenDataset
 from basikgpt.model.gpt import GPT
-from basikgpt.training.accounting import calculate_training_steps
+from basikgpt.training.accounting import calculate_eval_batches, calculate_training_steps
 from basikgpt.training.compatibility import validate_dataset_model_compatibility
 from basikgpt.training.config import TrainingConfig
 from basikgpt.training.metadata import extract_dataset_provenance, load_json
@@ -132,8 +132,52 @@ def parse_args() -> argparse.Namespace:
     # Evaluation & Logging Intervals
     parser.add_argument("--eval-interval", type=int, default=50, help="Validation interval in steps (default: 50)")
     parser.add_argument("--eval-batches", type=int, default=10, help="Number of validation batches (default: 10)")
+    parser.add_argument(
+        "--eval-tokens",
+        type=int,
+        default=None,
+        help="If set, eval_batches is derived so each eval covers exactly this many tokens.",
+    )
     parser.add_argument("--checkpoint-interval", type=int, default=50, help="Checkpoint interval in steps (default: 50)")
+    parser.add_argument(
+        "--checkpoint-steps",
+        type=str,
+        default=None,
+        help="Comma-separated explicit checkpoint steps (overrides interval when set)",
+    )
     parser.add_argument("--log-interval", type=int, default=10, help="Logging interval in steps (default: 10)")
+    parser.add_argument(
+        "--init-weights",
+        type=str,
+        default=None,
+        help="Path to a raw state_dict (.pt) loaded after from-scratch init and before compile",
+    )
+    parser.add_argument(
+        "--no-shuffle",
+        action="store_true",
+        help="Iterate training shards sequentially (required for exact sample-index resume)",
+    )
+    parser.add_argument(
+        "--track-data-index",
+        action="store_true",
+        help="Store data_sample_index in checkpoints and sequential-skip on resume",
+    )
+    parser.add_argument(
+        "--eval-at-start",
+        action="store_true",
+        help="Run validation before the first optimizer step",
+    )
+    parser.add_argument(
+        "--no-save-step-final",
+        action="store_true",
+        help="Do not write a duplicate step-final.pt (keep step-NNNNNNNN.pt only)",
+    )
+    parser.add_argument(
+        "--stop-at-step",
+        type=int,
+        default=None,
+        help="Stop after this optimizer step while keeping max_steps for the LR schedule",
+    )
 
     return parser.parse_args()
 
@@ -183,7 +227,8 @@ def main() -> None:
             requested_context_length=model_cfg.context_length,
         )
 
-    # 4. Configure Dataset & DataLoaders
+    if args.track_data_index:
+        args.no_shuffle = True
     train_shards = sorted(data_path.glob("train-*.npy"))
     val_shards = sorted(data_path.glob("validation-*.npy"))
 
@@ -197,7 +242,7 @@ def main() -> None:
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=not args.no_shuffle,
         drop_last=True,
         generator=torch.Generator().manual_seed(args.seed),
     )
@@ -223,6 +268,18 @@ def main() -> None:
     else:
         max_steps = args.max_steps
 
+    eval_batches = args.eval_batches
+    if args.eval_tokens is not None:
+        eval_batches = calculate_eval_batches(
+            eval_tokens=args.eval_tokens,
+            micro_batch_size=args.batch_size,
+            context_length=model_cfg.context_length,
+        )
+
+    checkpoint_steps = None
+    if args.checkpoint_steps:
+        checkpoint_steps = tuple(int(part.strip()) for part in args.checkpoint_steps.split(",") if part.strip())
+
     # 6. Instantiate Model & Config
     model = GPT(model_cfg)
     train_cfg = TrainingConfig(
@@ -235,9 +292,14 @@ def main() -> None:
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum_steps,
         eval_interval=args.eval_interval,
-        eval_batches=args.eval_batches,
+        eval_batches=eval_batches,
         checkpoint_interval=args.checkpoint_interval,
         log_interval=args.log_interval,
+        eval_at_start=args.eval_at_start,
+        track_data_sample_index=args.track_data_index,
+        save_step_final=not args.no_save_step_final,
+        stop_at_step=args.stop_at_step,
+        checkpoint_steps=checkpoint_steps,
         device=args.device,
         precision=args.precision,
         compile=args.compile,
@@ -295,6 +357,7 @@ def main() -> None:
         dataset_manifest_path=manifest_path if manifest_path.exists() else None,
         resume_from=args.resume,
         overwrite=args.overwrite,
+        init_weights=args.init_weights,
     )
     trainer.train(resume_from=args.resume)
 

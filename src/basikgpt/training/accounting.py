@@ -109,6 +109,43 @@ def calculate_training_steps(
     )
 
 
+def calculate_eval_batches(
+    eval_tokens: int,
+    micro_batch_size: int,
+    context_length: int,
+) -> int:
+    """Number of validation micro-batches that cover exactly `eval_tokens`.
+
+    Requires `eval_tokens` to be divisible by `B * T` so Candidate A/B can share
+    the same evaluated token count with different micro-batch sizes.
+    """
+    if eval_tokens <= 0:
+        raise ValueError(f"eval_tokens must be positive, got {eval_tokens}")
+    if micro_batch_size <= 0:
+        raise ValueError(f"micro_batch_size must be positive, got {micro_batch_size}")
+    if context_length <= 0:
+        raise ValueError(f"context_length must be positive, got {context_length}")
+
+    tokens_per_batch = micro_batch_size * context_length
+    if eval_tokens % tokens_per_batch != 0:
+        raise ValueError(
+            f"eval_tokens ({eval_tokens}) must be divisible by B*T "
+            f"({micro_batch_size}*{context_length}={tokens_per_batch}) so candidates "
+            "evaluate an identical token count."
+        )
+    return eval_tokens // tokens_per_batch
+
+
+def calculate_warmup_steps(max_steps: int, fraction: float = 0.10) -> int:
+    """Linear-warmup step count as a fraction of optimizer steps, at least 1."""
+    if max_steps <= 0:
+        raise ValueError(f"max_steps must be positive, got {max_steps}")
+    if not (0.0 < fraction <= 1.0):
+        raise ValueError(f"fraction must be in (0, 1], got {fraction}")
+    steps = round(fraction * max_steps)
+    return max(1, int(steps))
+
+
 def calculate_tokens_seen(
     optimizer_steps: int,
     micro_batch_size: int,
