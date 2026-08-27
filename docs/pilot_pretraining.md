@@ -148,3 +148,9 @@ Compiled Inductor `default` B=16: ≈ 87.2k tok/s synthetic, FineWeb short run f
 2.5B analytical steps (ceiling): B=16 G=1 → 152,588; B=8 G=8 → 38,147; B=16 G=8 → 19,074.
 
 DDP / FSDP / 2.5B main training were not started.
+
+### 7.4. Configuration Freeze (Milestone 16) — same GPU
+
+1M and 10M FineWeb-Edu pilots compared uncompiled `B=8 G=8` vs compiled `B=16 G=4` at **65,536 tokens/step**. Both stayed finite, validation declined overall, and process-level resume used sequential `data_sample_index`. Full tables: [`docs/config_freeze.md`](config_freeze.md).
+
+Provisional canonical single-GPU config (not claimed optimal): BF16, SDPA auto, `compile=false`, `B=8`, `T=1024`, `G=8`, 65,536 tokens/step. Artifact: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json). 2.5B main training was not started.

@@ -143,15 +143,15 @@ Status is tracked against the canonical numbering in `AGENTS.md`.
 - [ ] **Milestone 14**: 30B-ready Architectural Validation
 - [ ] **Milestone 15**: Comprehensive Technical Whitepaper
 
-Implemented outside the original numbered roadmap (used by later milestones): autoregressive generation with KV cache, a HellaSwag zero-shot evaluation engine, local CPU Stage A/B pilots, Milestone 14 RunPod GPU qualification (`docs/runpod.md`), and Milestone 15 GPU performance engineering (`docs/performance.md`).
+Implemented outside the original numbered roadmap (used by later milestones): autoregressive generation with KV cache, a HellaSwag zero-shot evaluation engine, local CPU Stage A/B pilots, Milestone 14 RunPod GPU qualification (`docs/runpod.md`), Milestone 15 GPU performance engineering (`docs/performance.md`), and Milestone 16 1M/10M configuration freeze (`docs/config_freeze.md`).
 
 On NVIDIA RTX PRO 4500 Blackwell, PyTorch 2.8.0+cu128, BF16, T=1024, `attention_backend=sdpa`:
 
 - Uncompiled B=1 G=1: ≈ 30.1k tokens/sec, peak allocated ≈ 2.58 GiB
 - Uncompiled B=16 G=1: ≈ 79.3k tokens/sec, peak allocated ≈ 16.5 GiB
-- `torch.compile` inductor `default` B=16 G=1: ≈ 87.2k tokens/sec, peak allocated ≈ 16.0 GiB (opt-in; default training remains uncompiled)
+- `torch.compile` inductor `default` B=16 G=1: ≈ 87.2k tokens/sec, peak allocated ≈ 16.0 GiB (opt-in)
 
-These are measured candidates, not a frozen pretraining recipe. 2.5B-token main training has not started.
+Provisional frozen single-GPU pretraining baseline (1M/10M FineWeb-Edu pilots; not an optimal claim): **uncompiled BF16, SDPA auto, B=8, T=1024, G=8, 65,536 tokens/step**. 10M sustained training-only throughput ≈ 82.9k tokens/sec, peak allocated ≈ 9.3 GiB. Config: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json). 2.5B-token main training has not started.
 
 ---
 

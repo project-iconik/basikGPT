@@ -1,0 +1,60 @@
+{
+  "schema": "basikgpt.canonical_single_gpu.v1",
+  "status": "provisional_freeze",
+  "model_preset": "gpt2_small",
+  "precision": "bf16",
+  "attention_backend": "sdpa",
+  "sdpa_kernel": "auto",
+  "compile": false,
+  "compile_mode": null,
+  "micro_batch_size": 8,
+  "context_length": 1024,
+  "grad_accum_steps": 8,
+  "world_size": 1,
+  "tokens_per_optimizer_step": 65536,
+  "peak_learning_rate": 0.0006,
+  "min_learning_rate": 6e-05,
+  "warmup_steps_main_provisional": 2000,
+  "weight_decay": 0.1,
+  "max_grad_norm": 1.0,
+  "seed": 1337,
+  "dropout": 0.0,
+  "dataset_repository": "HuggingFaceFW/fineweb-edu",
+  "dataset_config": "sample-10BT",
+  "dataset_revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+  "tokenizer_encoding": "gpt2",
+  "main_token_budget": 2500000000,
+  "main_plan": {
+    "requested_token_budget": 2500000000,
+    "micro_batch_size": 8,
+    "context_length": 1024,
+    "grad_accum_steps": 8,
+    "world_size": 1,
+    "tokens_per_micro_batch": 8192,
+    "tokens_per_optimizer_step": 65536,
+    "optimizer_steps": 38147,
+    "actual_token_budget": 2500001792,
+    "overshoot_tokens": 1792
+  },
+  "notes": "Provisional single-GPU baseline from RTX PRO 4500 Blackwell 1M/10M FineWeb-Edu pilots. Not an optimal hyperparameter claim.",
+  "extra": {
+    "selection_reason": "Both 10M runs were finite with process-level resume. A training-only 82,941 tok/s allocated 9.30 GiB; B 88,995 tok/s allocated 16.48 GiB. Canonical prefers correctness, VRAM headroom, and operational simplicity (uncompiled B=8 G=8) over a modest compile speedup.",
+    "results_available": [
+      "candidate_a_10m",
+      "candidate_a_10m_passed",
+      "candidate_a_1m",
+      "candidate_a_1m_passed",
+      "candidate_b_10m",
+      "candidate_b_10m_passed",
+      "candidate_b_1m",
+      "candidate_b_1m_passed"
+    ]
+  },
+  "runtime_estimate": {
+    "training_only_tokens_per_sec": 82940.65762610843,
+    "end_to_end_tokens_per_sec": 74373.29414793015,
+    "rough_training_only_seconds": 30142.03252727814,
+    "rough_end_to_end_seconds": 33614.21634797356,
+    "note": "Rough estimate from 10M sustained throughput. Not an exact ETA."
+  }
+}
