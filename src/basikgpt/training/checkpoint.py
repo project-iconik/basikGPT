@@ -17,9 +17,10 @@ def save_checkpoint(
     tokens_seen: int,
     training_config: TrainingConfig,
     model_config: Any | None = None,
+    scaler: torch.amp.GradScaler | None = None,
     extra_state: dict[str, Any] | None = None,
 ) -> Path:
-    """Atomically saves model, optimizer, step, tokens, configs, and RNG states to disk.
+    """Atomically saves model, optimizer, step, tokens, configs, scaler, and RNG states to disk.
 
     Writes to a temporary file first before renaming to prevent corrupted or partial
     checkpoint files if interrupted.
@@ -32,6 +33,7 @@ def save_checkpoint(
         tokens_seen: Total count of target training tokens processed.
         training_config: TrainingConfig instance.
         model_config: Optional GPTConfig instance.
+        scaler: Optional GradScaler instance (used for FP16 mixed precision).
         extra_state: Optional dictionary containing additional custom state metadata.
 
     Returns:
@@ -53,6 +55,7 @@ def save_checkpoint(
     payload = {
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
+        "scaler_state_dict": scaler.state_dict() if scaler is not None else None,
         "global_step": global_step,
         "tokens_seen": tokens_seen,
         "training_config": train_cfg_dict,
@@ -76,15 +79,17 @@ def load_checkpoint(
     checkpoint_path: Path | str,
     model: nn.Module,
     optimizer: torch.optim.Optimizer | None = None,
+    scaler: torch.amp.GradScaler | None = None,
     device: str | torch.device = "cpu",
     restore_rng: bool = True,
 ) -> dict[str, Any]:
-    """Loads a checkpoint from disk, restoring model and optimizer states.
+    """Loads a checkpoint from disk, restoring model, optimizer, and scaler states.
 
     Args:
         checkpoint_path: Path to the .pt checkpoint file.
         model: PyTorch model instance to load weights into.
         optimizer: Optional optimizer instance to load state into.
+        scaler: Optional GradScaler instance to load state into.
         device: Device location to map tensors to during load.
         restore_rng: Whether to restore Python and PyTorch RNG states.
 
@@ -105,6 +110,9 @@ def load_checkpoint(
 
     if optimizer is not None and "optimizer_state_dict" in payload:
         optimizer.load_state_dict(payload["optimizer_state_dict"])
+
+    if scaler is not None and payload.get("scaler_state_dict") is not None:
+        scaler.load_state_dict(payload["scaler_state_dict"])
 
     if restore_rng and "rng_states" in payload:
         rng = payload["rng_states"]

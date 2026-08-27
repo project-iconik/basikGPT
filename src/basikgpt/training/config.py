@@ -1,6 +1,9 @@
 """Training configuration dataclass for basikGPT pretraining."""
 
 from dataclasses import dataclass
+from typing import Literal
+
+Precision = Literal["fp32", "bf16", "fp16"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -8,7 +11,7 @@ class TrainingConfig:
     """Hyperparameters and runtime configuration for single-device baseline training.
 
     Maintains a strict boundary from GPTConfig: contains only optimization,
-    scheduling, batching, and environment parameters.
+    scheduling, batching, precision, and environment parameters.
     """
 
     # Optimization
@@ -34,8 +37,9 @@ class TrainingConfig:
     checkpoint_interval: int = 1000
     log_interval: int = 10
 
-    # Runtime Environment
+    # Runtime Environment & Precision
     device: str = "auto"
+    precision: str = "fp32"  # "fp32", "bf16", "fp16"
     output_dir: str = "runs/baseline"
     seed: int = 1337
 
@@ -74,3 +78,5 @@ class TrainingConfig:
             raise ValueError(f"checkpoint_interval must be positive, got {self.checkpoint_interval}")
         if self.log_interval <= 0:
             raise ValueError(f"log_interval must be positive, got {self.log_interval}")
+        if self.precision not in ("fp32", "bf16", "fp16"):
+            raise ValueError(f"precision must be one of 'fp32', 'bf16', 'fp16', got '{self.precision}'")

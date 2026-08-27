@@ -1,4 +1,4 @@
-"""CLI training entrypoint for basikGPT single-device baseline pretraining."""
+"""CLI training entrypoint for basikGPT baseline and mixed-precision pretraining."""
 
 import argparse
 from pathlib import Path
@@ -19,7 +19,7 @@ from basikgpt.training.trainer import Trainer
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="basikGPT Single-Device Baseline Pretraining Engine (FP32)."
+        description="basikGPT Pretraining Engine (CPU/CUDA, FP32/BF16/FP16)."
     )
     # Data & Paths
     parser.add_argument(
@@ -73,12 +73,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=0.1, help="Weight decay for 2D weights (default: 0.1)")
     parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient clipping norm (default: 1.0)")
 
+    # Runtime Environment & Precision
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        help="Device to use ('cpu', 'cuda', 'cuda:0', 'auto') (default: auto)",
+    )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="fp32",
+        choices=["fp32", "bf16", "fp16"],
+        help="Execution precision ('fp32', 'bf16', 'fp16') (default: fp32)",
+    )
+
     # Evaluation & Logging Intervals
     parser.add_argument("--eval-interval", type=int, default=50, help="Validation interval in steps (default: 50)")
     parser.add_argument("--eval-batches", type=int, default=10, help="Number of validation batches (default: 10)")
     parser.add_argument("--checkpoint-interval", type=int, default=50, help="Checkpoint interval in steps (default: 50)")
     parser.add_argument("--log-interval", type=int, default=10, help="Logging interval in steps (default: 10)")
-    parser.add_argument("--device", type=str, default="auto", help="Device to use ('cpu', 'cuda', 'auto')")
 
     return parser.parse_args()
 
@@ -88,7 +102,7 @@ def main() -> None:
     data_path = Path(args.data_dir)
 
     print("=" * 70)
-    print("  basikGPT Milestone 7: Single-Device Baseline Pretraining Engine")
+    print("  basikGPT Milestone 8: Pretraining Engine (CPU/CUDA & Mixed Precision)")
     print("=" * 70)
 
     # 1. Configure Model
@@ -113,6 +127,8 @@ def main() -> None:
     model = GPT(model_cfg)
     print(f"Model Architecture: {args.model_preset} ({model.num_parameters():,} parameters)")
     print(f"Attention Backend:  {model_cfg.attention_backend}")
+    print(f"Requested Device:   {args.device}")
+    print(f"Precision:          {args.precision.upper()}")
 
     # 2. Configure Dataset & DataLoaders
     train_shards = sorted(data_path.glob("train-*.npy"))
@@ -146,6 +162,7 @@ def main() -> None:
         checkpoint_interval=args.checkpoint_interval,
         log_interval=args.log_interval,
         device=args.device,
+        precision=args.precision,
         output_dir=args.output_dir,
     )
 

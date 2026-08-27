@@ -1,6 +1,7 @@
 """Single-device baseline pretraining loop and orchestration for basikGPT."""
 
 from collections.abc import Iterator
+import contextlib
 import json
 import math
 from pathlib import Path
@@ -18,14 +19,27 @@ from basikgpt.training.scheduler import get_learning_rate_at_step, update_learni
 
 
 def resolve_device(device_str: str) -> torch.device:
-    """Resolves device string ('auto', 'cpu', 'cuda') into a torch.device."""
+    """Resolves device string ('auto', 'cpu', 'cuda', 'cuda:X') into a torch.device.
+
+    Raises:
+        RuntimeError: If a CUDA device is explicitly requested but CUDA is unavailable.
+        ValueError: If device_str is unrecognized.
+    """
     if device_str == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device_str)
+    if device_str.startswith("cuda"):
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                f"Requested device '{device_str}' but CUDA is not available on this system."
+            )
+        return torch.device(device_str)
+    if device_str == "cpu":
+        return torch.device("cpu")
+    raise ValueError(f"Unknown device specification: '{device_str}'")
 
 
 class Trainer:
-    """Orchestrates single-device FP32 autoregressive pretraining for basikGPT."""
+    """Orchestrates single-device autoregressive pretraining for basikGPT across CPU and CUDA."""
 
     def __init__(
         self,
@@ -36,6 +50,32 @@ class Trainer:
     ) -> None:
         self.config = config
         self.device = resolve_device(config.device)
+
+        # Validate precision and device compatibility
+        if self.device.type == "cpu" and self.config.precision != "fp32":
+            raise ValueError(
+                f"CPU mixed precision is not supported in basikGPT. "
+                f"Requested precision '{self.config.precision}' on device '{self.device}'. "
+                "Use precision='fp32' on CPU or device='cuda'."
+            )
+
+        if self.device.type == "cuda" and self.config.precision == "bf16":
+            if not torch.cuda.is_bf16_supported():
+                gpu_name = torch.cuda.get_device_name(self.device)
+                raise RuntimeError(
+                    f"Requested precision 'bf16' on GPU '{gpu_name}', but this GPU does not support bfloat16 natively."
+                )
+
+        # Initialize Autocast context and GradScaler based on precision
+        if self.device.type == "cuda" and self.config.precision == "bf16":
+            self.autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+            self.scaler: torch.amp.GradScaler | None = None
+        elif self.device.type == "cuda" and self.config.precision == "fp16":
+            self.autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.float16)
+            self.scaler = torch.amp.GradScaler("cuda")
+        else:
+            self.autocast_ctx = contextlib.nullcontext()
+            self.scaler = None
 
         self.model = model.to(self.device)
         self.optimizer = configure_optimizers(self.model, self.config)
@@ -82,8 +122,9 @@ class Trainer:
                 x = x.to(self.device, non_blocking=True)
                 y = y.to(self.device, non_blocking=True)
 
-                logits = self.model(x)
-                loss = compute_cross_entropy_loss(logits, y)
+                with self.autocast_ctx:
+                    logits = self.model(x)
+                    loss = compute_cross_entropy_loss(logits, y)
 
                 if torch.isnan(loss) or torch.isinf(loss):
                     raise RuntimeError(f"Non-finite loss detected during evaluation at batch {i}: {loss.item()}")
@@ -110,37 +151,58 @@ class Trainer:
             x = x.to(self.device, non_blocking=True)
             y = y.to(self.device, non_blocking=True)
 
-            logits = self.model(x)
-            loss = compute_cross_entropy_loss(logits, y)
+            with self.autocast_ctx:
+                logits = self.model(x)
+                loss = compute_cross_entropy_loss(logits, y)
 
             if torch.isnan(loss) or torch.isinf(loss):
                 raise FloatingPointError(f"Non-finite training loss at global step {self.global_step}: {loss.item()}")
 
             # Scale loss for gradient accumulation
             loss_scaled = loss / accum_steps
-            loss_scaled.backward()
+            if self.scaler is not None:
+                self.scaler.scale(loss_scaled).backward()
+            else:
+                loss_scaled.backward()
 
             step_loss += loss.item() / accum_steps
             step_tokens += y.numel()
 
-        # Gradient clipping
-        if self.config.max_grad_norm is not None:
-            grad_norm = torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(),
-                self.config.max_grad_norm,
-            ).item()
+        # Gradient clipping and optimizer step
+        if self.scaler is not None:
+            if self.config.max_grad_norm is not None:
+                self.scaler.unscale_(self.optimizer)
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(),
+                    self.config.max_grad_norm,
+                ).item()
+            else:
+                grad_norm = 0.0
+
+            if math.isnan(grad_norm) or math.isinf(grad_norm):
+                raise FloatingPointError(f"Non-finite gradient norm at global step {self.global_step}: {grad_norm}")
+
+            lr = get_learning_rate_at_step(self.global_step, self.config)
+            update_learning_rate(self.optimizer, lr)
+
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
         else:
-            grad_norm = 0.0
+            if self.config.max_grad_norm is not None:
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(),
+                    self.config.max_grad_norm,
+                ).item()
+            else:
+                grad_norm = 0.0
 
-        if math.isnan(grad_norm) or math.isinf(grad_norm):
-            raise FloatingPointError(f"Non-finite gradient norm at global step {self.global_step}: {grad_norm}")
+            if math.isnan(grad_norm) or math.isinf(grad_norm):
+                raise FloatingPointError(f"Non-finite gradient norm at global step {self.global_step}: {grad_norm}")
 
-        # Update learning rate according to schedule
-        lr = get_learning_rate_at_step(self.global_step, self.config)
-        update_learning_rate(self.optimizer, lr)
+            lr = get_learning_rate_at_step(self.global_step, self.config)
+            update_learning_rate(self.optimizer, lr)
 
-        # Optimizer update
-        self.optimizer.step()
+            self.optimizer.step()
 
         self.tokens_seen += step_tokens
         self.global_step += 1
@@ -159,6 +221,7 @@ class Trainer:
                 resume_from,
                 self.model,
                 self.optimizer,
+                scaler=self.scaler,
                 device=self.device,
             )
             self.global_step = meta.get("global_step", 0)
@@ -168,11 +231,11 @@ class Trainer:
         data_iter = self._infinite_loader(self.train_loader)
         history: list[dict[str, Any]] = []
 
-        start_time = time.perf_counter()
-        last_log_time = start_time
-        last_tokens_seen = self.tokens_seen
+        gpu_name = torch.cuda.get_device_name(self.device) if self.device.type == "cuda" else None
 
-        print(f"[Trainer] Starting training on device '{self.device}' (FP32 baseline) ...")
+        print(f"[Trainer] Starting training on device '{self.device}' (Precision: {self.config.precision.upper()}) ...")
+        if gpu_name:
+            print(f"  GPU Device:         {gpu_name}")
         print(f"  Target steps:       {self.config.max_steps:,}")
         print(f"  Batch size:         {self.config.batch_size}")
         print(f"  Grad accumulation:  {self.config.gradient_accumulation_steps}")
@@ -180,6 +243,14 @@ class Trainer:
         print(f"  Peak LR:            {self.config.learning_rate:.2e}")
         print(f"  Min LR:             {self.config.min_learning_rate:.2e}")
         print(f"  Output dir:         {self.output_dir}")
+
+        if self.device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(self.device)
+            torch.cuda.synchronize(self.device)
+
+        start_time = time.perf_counter()
+        last_log_time = start_time
+        last_tokens_seen = self.tokens_seen
 
         while self.global_step < self.config.max_steps:
             step_metrics = self.train_step(data_iter)
@@ -206,6 +277,7 @@ class Trainer:
                     tokens_seen=self.tokens_seen,
                     training_config=self.config,
                     model_config=getattr(self.model, "config", None),
+                    scaler=self.scaler,
                 )
 
             # Logging
@@ -213,10 +285,19 @@ class Trainer:
                 self.global_step % self.config.log_interval == 0
                 or self.global_step == self.config.max_steps
             ):
+                if self.device.type == "cuda":
+                    torch.cuda.synchronize(self.device)
+
                 now = time.perf_counter()
                 elapsed_since_log = now - last_log_time
                 tokens_delta = self.tokens_seen - last_tokens_seen
                 tok_per_sec = tokens_delta / max(1e-6, elapsed_since_log)
+
+                peak_vram_mb = (
+                    torch.cuda.max_memory_allocated(self.device) / (1024 * 1024)
+                    if self.device.type == "cuda"
+                    else None
+                )
 
                 log_entry = {
                     "step": self.global_step,
@@ -226,20 +307,27 @@ class Trainer:
                     "lr": step_metrics["lr"],
                     "tokens_per_sec": tok_per_sec,
                     "elapsed_sec": now - start_time,
+                    "device": str(self.device),
+                    "precision": self.config.precision,
                 }
+                if peak_vram_mb is not None:
+                    log_entry["peak_vram_mb"] = peak_vram_mb
+                if gpu_name is not None:
+                    log_entry["gpu_name"] = gpu_name
                 if val_loss is not None:
                     log_entry["val_loss"] = val_loss
 
                 history.append(log_entry)
 
                 val_str = f" | Val: {val_loss:.4f}" if val_loss is not None else ""
+                vram_str = f" | VRAM: {peak_vram_mb:.0f}MB" if peak_vram_mb is not None else ""
                 print(
                     f"Step {self.global_step:06d}/{self.config.max_steps:06d} | "
                     f"Loss: {step_metrics['loss']:.4f} | "
                     f"GradNorm: {step_metrics['grad_norm']:.3f} | "
                     f"LR: {step_metrics['lr']:.2e} | "
                     f"Tokens: {self.tokens_seen:,} | "
-                    f"{tok_per_sec:,.0f} tok/s{val_str}"
+                    f"{tok_per_sec:,.0f} tok/s{vram_str}{val_str}"
                 )
 
                 # Write metrics line
@@ -259,6 +347,7 @@ class Trainer:
             tokens_seen=self.tokens_seen,
             training_config=self.config,
             model_config=getattr(self.model, "config", None),
+            scaler=self.scaler,
         )
         print(f"[Trainer] Training completed successfully. Final checkpoint saved to {final_ckpt}")
         return history
