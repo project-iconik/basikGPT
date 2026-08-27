@@ -6,6 +6,12 @@ from basikgpt.conversion import (
     load_hf_gpt2_weights,
     validate_hf_config,
 )
+from basikgpt.data import (
+    GPT2Tokenizer,
+    ShardedTokenDataset,
+    TokenShardWriter,
+    prepare_fineweb_edu,
+)
 from basikgpt.model.attention import CausalSelfAttention
 from basikgpt.model.block import TransformerBlock
 from basikgpt.model.gpt import GPT
@@ -23,5 +29,9 @@ __all__ = [
     "convert_hf_gpt2_state_dict",
     "load_hf_gpt2_weights",
     "validate_hf_config",
+    "GPT2Tokenizer",
+    "ShardedTokenDataset",
+    "TokenShardWriter",
+    "prepare_fineweb_edu",
     "__version__",
 ]

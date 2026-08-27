@@ -26,8 +26,10 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Checkpoints & datasets (future milestones)
-checkpoints/
-data/
-wandb/
-runs/
+# Checkpoints & datasets (root only)
+/checkpoints/
+/data/
+*.npy
+*.tmp
+/wandb/
+/runs/
