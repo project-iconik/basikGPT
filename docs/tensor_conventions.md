@@ -100,8 +100,13 @@ Detailed tensor shape progression inside attention:
    out = out.transpose(1, 2).contiguous().view(B, T, C): (B, T, C)
 
 10. Output Projection & Residual Dropout:
-    out = c_proj(out): (B, T, C)
+    out = out_proj(out): (B, T, C)
+    out = resid_dropout(out): (B, T, C)
 ```
+
+> **Dual Backend Note**:
+> - **`eager` Backend (Educational Reference)**: Executes steps 5–8 explicitly via manual matrix multiplication, masking, softmax, and dropout.
+> - **`sdpa` Backend (Optimized Pretraining Path)**: Replaces steps 5–8 with PyTorch's `F.scaled_dot_product_attention(q, k, v, is_causal=True)`, while preserving identical tensor shapes and parameters across projections.
 
 ### 2.4. Feed-Forward Network (MLP)
 

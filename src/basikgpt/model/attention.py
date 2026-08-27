@@ -1,12 +1,13 @@
 """Causal Multi-Head Self-Attention for basikGPT.
 
-Implements the educational reference Eager causal multi-head self-attention module
-using explicit PyTorch tensor operations.
+Provides both an educational reference Eager attention implementation and an optimized
+PyTorch SDPA (Scaled Dot-Product Attention) backend.
 """
 
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from basikgpt.config import GPTConfig
 
@@ -15,8 +16,10 @@ class CausalSelfAttention(nn.Module):
     """Causal Multi-Head Self-Attention module for GPT-2.
 
     This module performs autoregressive multi-head self-attention over an input sequence
-    of hidden states `(B, T, C)`. It enforces causality using a lower-triangular mask
-    so each token can only attend to itself and preceding tokens.
+    of hidden states `(B, T, C)`. It supports two backends:
+    - `"eager"`: Educational reference implementation using explicit matrix multiplication,
+      scaling, lower-triangular causal masking, softmax, and dropout.
+    - `"sdpa"`: Optimized pretraining backend using PyTorch's `F.scaled_dot_product_attention`.
 
     Tensor Dimension Notation:
         B: Batch size (number of sequences in batch)
@@ -29,14 +32,12 @@ class CausalSelfAttention(nn.Module):
         1. Fused QKV Linear projection: (B, T, C) -> (B, T, 3 * C)
         2. Chunk into Query, Key, Value: (B, T, C) each
         3. Head split & transpose: (B, T, C) -> (B, H, T, D)
-        4. Scaled Dot-Product: (Q @ K^T) / sqrt(D) -> (B, H, T, T)
-        5. Causal Masking: Mask future positions (j > i) with -infinity
-        6. Softmax along key dimension: dim=-1 -> (B, H, T, T)
-        7. Attention Dropout: (B, H, T, T)
-        8. Value Aggregation: attn_weights @ V -> (B, H, T, D)
-        9. Head Merge: (B, H, T, D) -> (B, T, C)
-        10. Output Linear projection: (B, T, C) -> (B, T, C)
-        11. Residual Dropout: (B, T, C) -> (B, T, C)
+        4. Attention Backend:
+           - eager: (Q @ K^T) / sqrt(D) -> mask -> softmax -> dropout -> @ V -> (B, H, T, D)
+           - sdpa: F.scaled_dot_product_attention(Q, K, V, is_causal=True) -> (B, H, T, D)
+        5. Head Merge: (B, H, T, D) -> (B, T, C)
+        6. Output Linear projection: (B, T, C) -> (B, T, C)
+        7. Residual Dropout: (B, T, C) -> (B, T, C)
     """
 
     def __init__(self, config: GPTConfig) -> None:
@@ -45,11 +46,13 @@ class CausalSelfAttention(nn.Module):
         self.d_model = config.d_model
         self.head_dim = config.head_dim
         self.context_length = config.context_length
+        self.dropout = config.dropout
+        self.attention_backend = config.attention_backend
 
-        # Fused projection for Query, Key, and Value (3 * d_model output)
+        # Shared fused projection for Query, Key, and Value (3 * d_model output)
         self.qkv_proj = nn.Linear(config.d_model, 3 * config.d_model, bias=config.bias)
 
-        # Output projection back to residual hidden dimension
+        # Shared output projection back to residual hidden dimension
         self.out_proj = nn.Linear(config.d_model, config.d_model, bias=config.bias)
 
         # Dropouts for attention matrix probabilities and output residual stream
@@ -57,12 +60,57 @@ class CausalSelfAttention(nn.Module):
         self.resid_dropout = nn.Dropout(config.dropout)
 
         # Lower-triangular causal mask: shape (1, 1, context_length, context_length)
-        # registered as non-persistent buffer so it moves with .to(device)
-        # without being saved into model state_dict.
+        # registered as non-persistent buffer for eager attention reference so it moves
+        # with .to(device) without polluting the model state_dict.
         mask = torch.tril(
             torch.ones(config.context_length, config.context_length, dtype=torch.bool)
         ).view(1, 1, config.context_length, config.context_length)
         self.register_buffer("causal_mask", mask, persistent=False)
+
+    def _eager_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        T: int,
+    ) -> torch.Tensor:
+        """Educational reference scaled dot-product attention with manual causal masking."""
+        # 1. Scaled dot-product attention scores: (B, H, T, D) @ (B, H, D, T) -> (B, H, T, T)
+        scale = 1.0 / math.sqrt(self.head_dim)
+        scores = (q @ k.transpose(-2, -1)) * scale
+
+        # 2. Slice and apply causal mask to prevent attending to future tokens (j > i)
+        mask = self.causal_mask[:, :, :T, :T]
+        scores = scores.masked_fill(~mask, float("-inf"))
+
+        # 3. Softmax along key position dimension (dim=-1) to obtain probability distribution
+        attn_weights = torch.softmax(scores, dim=-1)
+
+        # 4. Attention probability dropout
+        attn_weights = self.attn_dropout(attn_weights)
+
+        # 5. Weighted value aggregation: (B, H, T, T) @ (B, H, T, D) -> (B, H, T, D)
+        y = attn_weights @ v
+        return y
+
+    def _sdpa_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+    ) -> torch.Tensor:
+        """Optimized scaled dot-product attention using PyTorch SDPA primitive."""
+        # Ensure dropout is strictly 0.0 during evaluation mode
+        dropout_p = self.dropout if self.training else 0.0
+
+        y = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            dropout_p=dropout_p,
+            is_causal=True,
+        )
+        return y
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass of Causal Multi-Head Self-Attention.
@@ -75,7 +123,8 @@ class CausalSelfAttention(nn.Module):
 
         Raises:
             ValueError: If input sequence length T exceeds config.context_length,
-                        or if feature dimension C does not match config.d_model.
+                        or if feature dimension C does not match config.d_model,
+                        or if an unrecognized attention backend is configured.
         """
         B, T, C = x.shape
 
@@ -99,32 +148,22 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
 
-        # Step 4: Scaled dot-product attention scores: (B, H, T, D) @ (B, H, D, T) -> (B, H, T, T)
-        # Scaled by 1 / sqrt(D) to normalize variance of dot-products to ~1.0
-        scale = 1.0 / math.sqrt(self.head_dim)
-        scores = (q @ k.transpose(-2, -1)) * scale
+        # Step 4: Core Attention Computation dispatched by configured backend
+        if self.attention_backend == "eager":
+            y = self._eager_attention(q, k, v, T)
+        elif self.attention_backend == "sdpa":
+            y = self._sdpa_attention(q, k, v)
+        else:
+            raise ValueError(f"Unsupported attention backend: '{self.attention_backend}'.")
 
-        # Step 5: Apply causal mask to prevent attending to future tokens (j > i)
-        mask = self.causal_mask[:, :, :T, :T]
-        scores = scores.masked_fill(~mask, float("-inf"))
-
-        # Step 6: Softmax along key position dimension (dim=-1) to obtain probability distribution
-        attn_weights = torch.softmax(scores, dim=-1)
-
-        # Step 7: Attention probability dropout
-        attn_weights = self.attn_dropout(attn_weights)
-
-        # Step 8: Value aggregation: (B, H, T, T) @ (B, H, T, D) -> (B, H, T, D)
-        y = attn_weights @ v
-
-        # Step 9: Head merge: (B, H, T, D) -> (B, T, H, D) -> (B, T, C)
+        # Step 5: Head merge: (B, H, T, D) -> (B, T, H, D) -> (B, T, C)
         # .contiguous() is required because transpose(1, 2) alters memory strides
         y = y.transpose(1, 2).contiguous().view(B, T, C)
 
-        # Step 10: Output linear projection: (B, T, C) -> (B, T, C)
+        # Step 6: Output linear projection: (B, T, C) -> (B, T, C)
         y = self.out_proj(y)
 
-        # Step 11: Residual dropout
+        # Step 7: Residual dropout
         y = self.resid_dropout(y)
 
         return y
