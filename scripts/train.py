@@ -1,9 +1,9 @@
 """CLI training entrypoint for basikGPT baseline and mixed-precision pretraining."""
 
 import argparse
+from datetime import datetime
 from pathlib import Path
 import sys
-import torch
 from torch.utils.data import DataLoader
 
 # Add src to pythonpath
@@ -13,7 +13,9 @@ sys.path.insert(0, str(repo_root / "src"))
 from basikgpt.config import GPTConfig
 from basikgpt.data.shard import ShardedTokenDataset
 from basikgpt.model.gpt import GPT
+from basikgpt.training.compatibility import validate_dataset_model_compatibility
 from basikgpt.training.config import TrainingConfig
+from basikgpt.training.metadata import load_json
 from basikgpt.training.trainer import Trainer
 
 
@@ -21,18 +23,29 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="basikGPT Pretraining Engine (CPU/CUDA, FP32/BF16/FP16)."
     )
-    # Data & Paths
+    # Experiment Naming & Paths
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default=None,
+        help="Custom run name (default: auto-generated timestamped name)",
+    )
     parser.add_argument(
         "--data-dir",
         type=str,
         default="data/fineweb-edu-smoke",
-        help="Directory containing tokenized .npy binary shards (default: data/fineweb-edu-smoke)",
+        help="Directory containing tokenized .npy binary shards and manifest.json (default: data/fineweb-edu-smoke)",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="runs/baseline",
-        help="Output directory for checkpoints and metrics (default: runs/baseline)",
+        default=None,
+        help="Base or exact output directory for checkpoints and metrics (default: runs/<run-name>)",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite target output directory if it already exists",
     )
     parser.add_argument(
         "--resume",
@@ -72,6 +85,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-lr", type=float, default=6e-5, help="Minimum learning rate floor (default: 6e-5)")
     parser.add_argument("--weight-decay", type=float, default=0.1, help="Weight decay for 2D weights (default: 0.1)")
     parser.add_argument("--max-grad-norm", type=float, default=1.0, help="Max gradient clipping norm (default: 1.0)")
+    parser.add_argument("--seed", type=int, default=1337, help="Random seed for reproducibility (default: 1337)")
 
     # Runtime Environment & Precision
     parser.add_argument(
@@ -101,11 +115,12 @@ def main() -> None:
     args = parse_args()
     data_path = Path(args.data_dir)
 
-    print("=" * 70)
-    print("  basikGPT Milestone 8: Pretraining Engine (CPU/CUDA & Mixed Precision)")
-    print("=" * 70)
+    # 1. Determine Run Name & Output Directory
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_name = args.run_name or f"{timestamp}-{args.model_preset}"
+    out_dir = Path(args.output_dir) if args.output_dir else Path("runs") / run_name
 
-    # 1. Configure Model
+    # 2. Configure Model
     if args.model_preset == "tiny":
         model_cfg = GPTConfig(
             vocab_size=50257,
@@ -124,13 +139,18 @@ def main() -> None:
             dropout=0.0,
         )
 
-    model = GPT(model_cfg)
-    print(f"Model Architecture: {args.model_preset} ({model.num_parameters():,} parameters)")
-    print(f"Attention Backend:  {model_cfg.attention_backend}")
-    print(f"Requested Device:   {args.device}")
-    print(f"Precision:          {args.precision.upper()}")
+    # 3. Load & Validate Dataset Manifest
+    manifest_path = data_path / "manifest.json"
+    dataset_manifest = None
+    if manifest_path.exists():
+        dataset_manifest = load_json(manifest_path)
+        validate_dataset_model_compatibility(
+            model_config=model_cfg,
+            manifest=dataset_manifest,
+            requested_context_length=model_cfg.context_length,
+        )
 
-    # 2. Configure Dataset & DataLoaders
+    # 4. Configure Dataset & DataLoaders
     train_shards = sorted(data_path.glob("train-*.npy"))
     val_shards = sorted(data_path.glob("validation-*.npy"))
 
@@ -138,16 +158,20 @@ def main() -> None:
         raise FileNotFoundError(f"No train shards found in {data_path}")
 
     train_dataset = ShardedTokenDataset(train_shards, context_length=model_cfg.context_length)
+    if len(train_dataset) == 0:
+        raise ValueError(f"Training dataset is empty in {data_path} for context_length={model_cfg.context_length}")
+
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
-    print(f"Train dataset:      {len(train_shards)} shard(s), {train_dataset.total_tokens:,} tokens ({len(train_dataset):,} samples)")
 
     val_loader = None
     if val_shards:
         val_dataset = ShardedTokenDataset(val_shards, context_length=model_cfg.context_length)
+        if len(val_dataset) == 0:
+            raise ValueError(f"Validation shards exist in {data_path} but 0 samples could be extracted for context_length={model_cfg.context_length}")
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
-        print(f"Validation dataset: {len(val_shards)} shard(s), {val_dataset.total_tokens:,} tokens ({len(val_dataset):,} samples)")
 
-    # 3. Configure Training Engine
+    # 5. Instantiate Model & Config
+    model = GPT(model_cfg)
     train_cfg = TrainingConfig(
         learning_rate=args.lr,
         min_learning_rate=args.min_lr,
@@ -163,19 +187,45 @@ def main() -> None:
         log_interval=args.log_interval,
         device=args.device,
         precision=args.precision,
-        output_dir=args.output_dir,
+        output_dir=str(out_dir),
+        seed=args.seed,
     )
 
     tokens_per_step = args.batch_size * model_cfg.context_length * args.grad_accum_steps
-    print(f"Tokens/step:        {tokens_per_step:,} target tokens")
-    print("=" * 70 + "\n")
 
-    # 4. Run Training
+    print("=" * 75)
+    print("  basikGPT Milestone 8: Pretraining Engine (Robustness & Reproducibility)")
+    print("=" * 75)
+    print(f"  Run Name:           {run_name}")
+    print(f"  Output Directory:   {out_dir}")
+    print(f"  Model Architecture: {args.model_preset} ({model.num_parameters():,} parameters)")
+    print(f"  Context Length (T): {model_cfg.context_length}")
+    print(f"  Attention Backend:  {model_cfg.attention_backend}")
+    print(f"  Device:             {args.device}")
+    print(f"  Precision:          {args.precision.upper()}")
+    print(f"  Random Seed:        {args.seed}")
+    print(f"  Batch Size (B):     {args.batch_size}")
+    print(f"  Grad Accum (G):     {args.grad_accum_steps}")
+    print(f"  Tokens / Step:      {tokens_per_step:,} target tokens")
+    print(f"  Train Dataset:      {len(train_shards)} shard(s), {train_dataset.total_tokens:,} tokens ({len(train_dataset):,} samples)")
+    if val_loader:
+        print(f"  Val Dataset:        {len(val_shards)} shard(s), {val_dataset.total_tokens:,} tokens ({len(val_dataset):,} samples)")
+    if dataset_manifest:
+        rev = dataset_manifest.get("provenance", {}).get("dataset_revision", "unknown")
+        print(f"  Dataset Revision:   {rev[:16]}...")
+    print("=" * 75 + "\n")
+
+    # 6. Run Training
     trainer = Trainer(
         model=model,
         config=train_cfg,
         train_loader=train_loader,
         val_loader=val_loader,
+        run_name=run_name,
+        dataset_manifest=dataset_manifest,
+        dataset_manifest_path=manifest_path if manifest_path.exists() else None,
+        resume_from=args.resume,
+        overwrite=args.overwrite,
     )
     trainer.train(resume_from=args.resume)
 
