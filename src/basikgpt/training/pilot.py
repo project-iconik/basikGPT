@@ -60,7 +60,7 @@ PILOT_STAGES: dict[str, PilotStageSpec] = {
     ),
     "stage_b": PilotStageSpec(
         stage_name="stage_b",
-        description="Stage B: Short Pilot (~100K tokens) - Observes loss convergence trends, gradient norm stability, validation cadence, and resume fidelity.",
+        description="Stage B: Short Pilot (~100K tokens) - Observes an overall downward loss trend (not per-step monotone), gradient norm stability, validation cadence, and state-continuous resume.",
         target_tokens=100_000,
         model_preset="tiny",
         context_length=128,

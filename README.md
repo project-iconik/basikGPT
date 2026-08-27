@@ -143,7 +143,15 @@ Status is tracked against the canonical numbering in `AGENTS.md`.
 - [ ] **Milestone 14**: 30B-ready Architectural Validation
 - [ ] **Milestone 15**: Comprehensive Technical Whitepaper
 
-Implemented outside the original numbered roadmap (used by later milestones): autoregressive generation with KV cache, and a HellaSwag zero-shot evaluation engine.
+Implemented outside the original numbered roadmap (used by later milestones): autoregressive generation with KV cache, a HellaSwag zero-shot evaluation engine, local CPU Stage A/B pilots, Milestone 14 RunPod GPU qualification (`docs/runpod.md`), and Milestone 15 GPU performance engineering (`docs/performance.md`).
+
+On NVIDIA RTX PRO 4500 Blackwell, PyTorch 2.8.0+cu128, BF16, T=1024, `attention_backend=sdpa`:
+
+- Uncompiled B=1 G=1: ≈ 30.1k tokens/sec, peak allocated ≈ 2.58 GiB
+- Uncompiled B=16 G=1: ≈ 79.3k tokens/sec, peak allocated ≈ 16.5 GiB
+- `torch.compile` inductor `default` B=16 G=1: ≈ 87.2k tokens/sec, peak allocated ≈ 16.0 GiB (opt-in; default training remains uncompiled)
+
+These are measured candidates, not a frozen pretraining recipe. 2.5B-token main training has not started.
 
 ---
 

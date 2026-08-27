@@ -57,8 +57,17 @@ If each sublayer $f_l$ adds outputs with variance $\sigma^2$, the variance of th
 To counteract this, OpenAI (Radford et al., 2019, Section 2.3) introduced a depth-dependent scaling factor:
 > *"A modified initialization which accounts for the accumulation on the residual path with model depth is used. We scale the weights of residual layers at initialization by a factor of $\frac{1}{\sqrt{2N}}$ where $N$ is the number of residual layers."*
 
-Because each Transformer block contains **2 residual additions** (one after Causal Multi-Head Self-Attention, one after the Position-Wise MLP), a stack of $L$ blocks contains $2L$ residual additions. For GPT-2 Small ($L=12$):
-$$\text{std}_{\text{resid}} = \frac{\text{initializer\_range}}{\sqrt{2 \cdot n\_layers}} = \frac{0.02}{\sqrt{2 \times 12}} = \frac{0.02}{\sqrt{24}} \approx 0.00408248$$
+Because each Transformer block contains **2 residual additions** (one after Causal Multi-Head Self-Attention, one after the Position-Wise MLP), a stack of $L$ blocks contains $2L$ residual additions.
+
+Canonical modernized residual projection **standard deviation** (not a linear `0.022 * n_layers` product):
+
+$$\text{std}_{\text{resid}} = \frac{\text{initializer\_range}}{\sqrt{2 \cdot n\_layers}}$$
+
+With the default `initializer_range = 0.02` and GPT-2 Small ($L = 12$):
+
+$$\text{std}_{\text{resid}} = \frac{0.02}{\sqrt{2 \times 12}} = \frac{0.02}{\sqrt{24}} \approx 0.00408248$$
+
+Positional embeddings (`wpe`) are **not** residual-scaled. They use the same base Normal as `wte`: $\mathcal{N}(0, 0.02^2)$.
 
 ---
 
@@ -69,12 +78,12 @@ $$\text{std}_{\text{resid}} = \frac{\text{initializer\_range}}{\sqrt{2 \cdot n\_
 | **Token Embedding** | `self.wte.weight` | $\mathcal{N}(0, \sigma^2)$ | $\sigma = 0.020000$ |
 | **Positional Embedding** | `self.wpe.weight` | $\mathcal{N}(0, \sigma^2)$ | $\sigma = 0.020000$ |
 | **QKV Projection** | `attn.qkv_proj.weight` | $\mathcal{N}(0, \sigma^2)$ | $\sigma = 0.020000$ |
-| **Attention Output Projection** | `attn.out_proj.weight` | $\mathcal{N}\left(0, \frac{\sigma^2}{2L}\right)$ | $\frac{0.02}{\sqrt{24}} \approx 0.004082$ |
+| **Attention Output Projection** | `attn.out_proj.weight` | $\mathcal{N}(0, \text{std}_{\text{resid}}^2)$ with $\text{std}_{\text{resid}} = \sigma / \sqrt{2L}$ | $\sigma / \sqrt{24} \approx 0.004082$ |
 | **MLP Expansion** | `mlp.fc_in.weight` | $\mathcal{N}(0, \sigma^2)$ | $\sigma = 0.020000$ |
-| **MLP Contraction** | `mlp.fc_out.weight` | $\mathcal{N}\left(0, \frac{\sigma^2}{2L}\right)$ | $\frac{0.02}{\sqrt{24}} \approx 0.004082$ |
-| **Linear Biases** | `*.bias` | $\mathbf{0}$ (constant zero) | $0.000000$ |
-| **LayerNorm Scales** | `ln_1`, `ln_2`, `ln_f` wt | $\mathbf{1}$ (constant one) | $0.000000$ |
-| **LayerNorm Biases** | `ln_1`, `ln_2`, `ln_f` bias | $\mathbf{0}$ (constant zero) | $0.000000$ |
+| **MLP Contraction** | `mlp.fc_out.weight` | $\mathcal{N}(0, \text{std}_{\text{resid}}^2)$ with $\text{std}_{\text{resid}} = \sigma / \sqrt{2L}$ | $\sigma / \sqrt{24} \approx 0.004082$ |
+| **Linear Biases** | `*.bias` | Constant $0$ (`zeros_`) | n/a (not sampled) |
+| **LayerNorm Scales** | `ln_1`, `ln_2`, `ln_f` weight | Constant $1$ (`ones_`) | n/a (not sampled) |
+| **LayerNorm Biases** | `ln_1`, `ln_2`, `ln_f` bias | Constant $0$ (`zeros_`) | n/a (not sampled) |
 | **Language Model Head** | `self.lm_head.weight` | Tied to `self.wte.weight` | Identical memory tensor to `wte` |
 
 ---

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from basikgpt.config import GPTConfig
+from basikgpt.training.compile import unwrap_compiled_model
 from basikgpt.training.config import TrainingConfig
 
 CHECKPOINT_SCHEMA_VERSION = 1
@@ -54,6 +55,7 @@ def save_checkpoint(
     target_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = target_path.parent / f"{target_path.name}.tmp"
 
+    model = unwrap_compiled_model(model)
     model_cfg_dict = asdict(model_config) if is_dataclass(model_config) else getattr(model_config, "__dict__", None)
     train_cfg_dict = asdict(training_config) if is_dataclass(training_config) else dict(training_config)
 
@@ -166,7 +168,8 @@ def load_checkpoint(
                 + "\n  ".join(mismatches)
             )
 
-    # 4. Load state dicts
+    # 4. Load state dicts into the uncompiled module (never persist `_orig_mod.` keys).
+    model = unwrap_compiled_model(model)
     model.load_state_dict(payload["model_state_dict"])
 
     if optimizer is not None and "optimizer_state_dict" in payload:

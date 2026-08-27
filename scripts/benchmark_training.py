@@ -60,6 +60,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grad-accum-steps", type=int, default=8, help="Gradient accumulation steps (default: 8)")
     parser.add_argument("--warmup-steps", type=int, default=5, help="Benchmark warmup steps before timing (default: 5)")
     parser.add_argument("--measured-steps", type=int, default=20, help="Benchmark measured steps for timing (default: 20)")
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="Opt-in torch.compile with the Inductor backend (default: disabled)",
+    )
+    parser.add_argument(
+        "--compile-mode",
+        type=str,
+        default="default",
+        help="torch.compile mode when --compile is set (default: default)",
+    )
+    parser.add_argument(
+        "--sdpa-kernel",
+        type=str,
+        default="auto",
+        help="Exclusive PyTorch SDPA kernel, or auto (default: auto)",
+    )
     parser.add_argument("--output-json", type=str, default=None, help="Optional path to write benchmark JSON results")
     return parser.parse_args()
 
@@ -127,6 +144,9 @@ def main() -> None:
         gradient_accumulation_steps=args.grad_accum_steps,
         device=str(resolved_device),
         precision=args.precision,
+        compile=args.compile,
+        compile_mode=args.compile_mode,
+        sdpa_kernel=args.sdpa_kernel,
         output_dir="runs/benchmark_temp",
     )
 
@@ -162,9 +182,11 @@ def main() -> None:
     ms_per_step = (elapsed_time / args.measured_steps) * 1000.0
     mean_loss = sum(losses) / len(losses)
 
-    peak_vram_mb = None
+    peak_allocated_vram_bytes = None
+    peak_reserved_vram_bytes = None
     if resolved_device.type == "cuda":
-        peak_vram_mb = torch.cuda.max_memory_allocated(resolved_device) / (1024 * 1024)
+        peak_allocated_vram_bytes = int(torch.cuda.max_memory_allocated(resolved_device))
+        peak_reserved_vram_bytes = int(torch.cuda.max_memory_reserved(resolved_device))
 
     # 6. Report Results
     print("\n" + "=" * 70)
@@ -179,8 +201,9 @@ def main() -> None:
     print(f"  Throughput:         {tokens_per_sec:,.1f} tokens/sec")
     print(f"  Step Time:          {ms_per_step:.2f} ms/step")
     print(f"  Total Tokens:       {total_measured_tokens:,} tokens in {elapsed_time:.2f}s")
-    if peak_vram_mb is not None:
-        print(f"  Peak VRAM:          {peak_vram_mb:.1f} MB")
+    if peak_allocated_vram_bytes is not None:
+        print(f"  Peak allocated:     {peak_allocated_vram_bytes / (1024 * 1024):.1f} MiB ({peak_allocated_vram_bytes} bytes)")
+        print(f"  Peak reserved:      {peak_reserved_vram_bytes / (1024 * 1024):.1f} MiB ({peak_reserved_vram_bytes} bytes)")
     print(f"  Mean Loss:          {mean_loss:.4f}")
     print("=" * 70 + "\n")
 
@@ -191,6 +214,9 @@ def main() -> None:
             "parameter_count": param_count,
             "context_length": ctx_len,
             "attention_backend": model_cfg.attention_backend,
+            "sdpa_kernel": args.sdpa_kernel,
+            "compiled": bool(args.compile),
+            "compile_mode": args.compile_mode if args.compile else None,
             "device": str(resolved_device),
             "precision": args.precision,
             "batch_size": args.batch_size,
@@ -203,7 +229,8 @@ def main() -> None:
             "tokens_per_second": tokens_per_sec,
             "ms_per_step": ms_per_step,
             "mean_loss": mean_loss,
-            "peak_vram_mb": peak_vram_mb,
+            "peak_allocated_vram_bytes": peak_allocated_vram_bytes,
+            "peak_reserved_vram_bytes": peak_reserved_vram_bytes,
             "python_version": platform.python_version(),
             "pytorch_version": torch.__version__,
             "cuda_available": torch.cuda.is_available(),

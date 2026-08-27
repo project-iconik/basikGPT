@@ -52,7 +52,7 @@ To ensure complete transparency and rigorous engineering standards, `basikGPT` c
 | **Optimizer $\beta_1, \beta_2$** | $\beta_1 = 0.9, \beta_2 = 0.98$ (or 0.999) | $\beta_1 = 0.9, \beta_2 = 0.95$ | **Modernized**: Industry standard for Transformer stability (GPT-3/nanoGPT) |
 | **Weight Decay** | 0.01 (L2) | 0.1 (Decoupled) | **Modernized**: Applied strictly to 2D matrices; 0.0 for 1D biases/LayerNorms |
 | **Gradient Clipping** | Not standard in early TF | `max_grad_norm = 1.0` | **Modernized**: Prevents gradient spikes in mixed precision / deep stacks |
-| **Attention Backend** | Manual matrix multiplication | **PyTorch SDPA** (FlashAttention / Mem-Efficient) | **Modernized**: High-efficiency hardware acceleration without numerical divergence |
+| **Attention Backend** | Manual matrix multiplication | **PyTorch SDPA** | **Modernized**: `F.scaled_dot_product_attention`; kernel dispatch is not claimed unless inspected |
 | **Learning Rate Schedule** | Linear Warmup + Cosine Decay | Linear Warmup (2,000 steps) + Cosine Decay to $0.1 \times \text{lr}$ | **Modernized**: Stable convergence curve |
 | **Training Corpus** | WebText (~40GB private dataset) | **FineWeb-Edu** (10B sample / 2.5B target) | **Project-Specific**: Open, high educational quality web crawl |
 | **Token Budget** | ~40 Billion tokens | ~2.5 Billion tokens (**Chinchilla-inspired**) | **Project-Specific**: ~20 tokens per parameter ratio for 124M model |

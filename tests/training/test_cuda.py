@@ -11,6 +11,7 @@ from basikgpt.model.gpt import GPT
 from basikgpt.training.checkpoint import load_checkpoint, save_checkpoint
 from basikgpt.training.config import TrainingConfig
 from basikgpt.training.loss import compute_cross_entropy_loss
+from basikgpt.training.optimizer import configure_optimizers
 from basikgpt.training.trainer import Trainer, resolve_device
 
 
@@ -134,6 +135,166 @@ def test_cuda_fp32_vs_cpu_fp32_parity() -> None:
     torch.testing.assert_close(logits_cpu, logits_cuda.cpu(), rtol=1e-4, atol=1e-4)
     torch.testing.assert_close(loss_cpu, loss_cuda.cpu(), rtol=1e-4, atol=1e-4)
 
+    diff = (logits_cpu - logits_cuda.cpu()).abs()
+    max_abs_error = float(diff.max().item())
+    mean_abs_error = float(diff.mean().item())
+    print(f"CPU↔CUDA FP32 max_abs_error={max_abs_error:.6e} mean_abs_error={mean_abs_error:.6e}")
+    assert math.isfinite(max_abs_error) and math.isfinite(mean_abs_error)
+
+
+@pytest.mark.cuda
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available on this machine")
+def test_cuda_token_accounting(tmp_path: Path) -> None:
+    """Verifies tokens_seen == B * T * G * steps on CUDA FP32."""
+    batch_size, context_length, grad_accum, steps = 2, 16, 3, 4
+    cfg = GPTConfig(vocab_size=64, context_length=context_length, n_layers=1, n_heads=2, d_model=16, d_ff=64, dropout=0.0)
+    model = GPT(cfg)
+    raw = torch.randint(0, 64, (32, context_length + 1), dtype=torch.long)
+    loader = DataLoader(TensorDataset(raw[:, :-1], raw[:, 1:]), batch_size=batch_size)
+    train_cfg = TrainingConfig(
+        warmup_steps=0,
+        max_steps=steps,
+        batch_size=batch_size,
+        gradient_accumulation_steps=grad_accum,
+        device="cuda",
+        precision="fp32",
+        output_dir=str(tmp_path),
+        log_interval=1,
+        eval_interval=100,
+        checkpoint_interval=100,
+    )
+    trainer = Trainer(model, train_cfg, loader)
+    trainer.train()
+    expected = batch_size * context_length * grad_accum * steps
+    assert trainer.tokens_seen == expected
+    assert trainer.global_step == steps
+
+
+@pytest.mark.cuda
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available on this machine")
+def test_cpu_checkpoint_loads_on_cuda(tmp_path: Path) -> None:
+    """Verifies a CPU-saved checkpoint can be loaded onto CUDA."""
+    cfg = GPTConfig(vocab_size=32, context_length=8, n_layers=1, n_heads=2, d_model=16, d_ff=64, dropout=0.0)
+    cpu_model = GPT(cfg)
+    train_cfg = TrainingConfig(warmup_steps=0, device="cpu", precision="fp32")
+    cpu_opt = torch.optim.AdamW(cpu_model.parameters(), lr=1e-3)
+    ckpt = tmp_path / "cpu.pt"
+    save_checkpoint(ckpt, cpu_model, cpu_opt, global_step=3, tokens_seen=48, training_config=train_cfg, model_config=cfg)
+
+    gpu_model = GPT(cfg).to("cuda")
+    gpu_opt = torch.optim.AdamW(gpu_model.parameters(), lr=1e-3)
+    meta = load_checkpoint(ckpt, gpu_model, gpu_opt, device="cuda")
+    assert meta["global_step"] == 3
+    assert meta["tokens_seen"] == 48
+    assert next(gpu_model.parameters()).is_cuda
+
+
+@pytest.mark.cuda
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available on this machine")
+def test_gpu_checkpoint_state_continuous_resume(tmp_path: Path) -> None:
+    """Verifies GPU save → recreate → GPU resume restores step and token counters."""
+    cfg = GPTConfig(vocab_size=64, context_length=16, n_layers=1, n_heads=2, d_model=16, d_ff=64, dropout=0.0)
+    raw = torch.randint(0, 64, (16, 17), dtype=torch.long)
+    loader = DataLoader(TensorDataset(raw[:, :-1], raw[:, 1:]), batch_size=2)
+    first_cfg = TrainingConfig(
+        warmup_steps=0,
+        max_steps=2,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        device="cuda",
+        precision="fp32",
+        output_dir=str(tmp_path / "run"),
+        log_interval=1,
+        eval_interval=10,
+        checkpoint_interval=2,
+    )
+    first = Trainer(GPT(cfg), first_cfg, loader)
+    first.train()
+    ckpt = tmp_path / "run" / "step-final.pt"
+    assert ckpt.exists()
+    tokens_after_first = first.tokens_seen
+
+    resume_cfg = TrainingConfig(
+        warmup_steps=0,
+        max_steps=4,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        device="cuda",
+        precision="fp32",
+        output_dir=str(tmp_path / "run"),
+        log_interval=1,
+        eval_interval=10,
+        checkpoint_interval=2,
+    )
+    resumed = Trainer(GPT(cfg), resume_cfg, loader, resume_from=ckpt, overwrite=True)
+    resumed.train(resume_from=ckpt)
+    assert resumed.global_step == 4
+    assert resumed.tokens_seen == tokens_after_first + (2 * 16 * 1 * 2)
+
+
+@pytest.mark.cuda
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available on this machine")
+def test_gpu_checkpoint_cpu_inspection(tmp_path: Path) -> None:
+    """Verifies a CUDA checkpoint can be inspected with map_location=cpu."""
+    cfg = GPTConfig(vocab_size=32, context_length=8, n_layers=1, n_heads=2, d_model=16, d_ff=64, dropout=0.0)
+    raw = torch.randint(0, 32, (8, 9), dtype=torch.long)
+    loader = DataLoader(TensorDataset(raw[:, :-1], raw[:, 1:]), batch_size=2)
+    train_cfg = TrainingConfig(
+        warmup_steps=0,
+        max_steps=1,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        device="cuda",
+        precision="fp32",
+        output_dir=str(tmp_path),
+        log_interval=1,
+        eval_interval=10,
+        checkpoint_interval=1,
+    )
+    trainer = Trainer(GPT(cfg), train_cfg, loader)
+    trainer.train()
+    ckpt = tmp_path / "step-final.pt"
+
+    inspect_cfg = TrainingConfig(warmup_steps=0, device="cpu", precision="fp32")
+    cpu_model = GPT(cfg)
+    cpu_opt = configure_optimizers(cpu_model, inspect_cfg)
+    meta = load_checkpoint(ckpt, cpu_model, cpu_opt, device="cpu")
+    assert meta["global_step"] == 1
+    assert meta["tokens_seen"] == 16
+    assert not next(cpu_model.parameters()).is_cuda
+
+
+@pytest.mark.cuda
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available on this machine")
+def test_fp32_bf16_loss_sanity() -> None:
+    """Records FP32 vs BF16 loss on identical weights/batch. Exact equality is not required."""
+    if not torch.cuda.is_bf16_supported():
+        pytest.skip("BF16 is not supported on this CUDA GPU")
+
+    torch.manual_seed(42)
+    cfg = GPTConfig(vocab_size=64, context_length=16, n_layers=2, n_heads=4, d_model=32, d_ff=128, dropout=0.0)
+    model = GPT(cfg).to("cuda")
+    model.eval()
+    x = torch.randint(0, 64, (2, 16), dtype=torch.long, device="cuda")
+    y = torch.randint(0, 64, (2, 16), dtype=torch.long, device="cuda")
+    with torch.inference_mode():
+        loss_fp32 = compute_cross_entropy_loss(model(x), y)
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            loss_bf16 = compute_cross_entropy_loss(model(x), y)
+
+    fp32 = float(loss_fp32.item())
+    bf16 = float(loss_bf16.item())
+    abs_diff = abs(fp32 - bf16)
+    rel_diff = abs_diff / max(abs(fp32), 1e-12)
+    print(f"FP32 loss={fp32:.6f} BF16 loss={bf16:.6f} abs_diff={abs_diff:.6e} rel_diff={rel_diff:.6e}")
+    assert math.isfinite(fp32) and math.isfinite(bf16)
+    # Record the actual gap. Fail only on catastrophic divergence, not on expected BF16 rounding.
+    if rel_diff > 0.25:
+        raise AssertionError(
+            f"FP32 vs BF16 relative loss difference is large ({rel_diff:.4f}); "
+            "not widening tolerance to hide the gap."
+        )
+
 
 @pytest.mark.cuda
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available on this machine")
@@ -236,6 +397,15 @@ def test_cuda_fp16_grad_scaler_step(tmp_path: Path) -> None:
 
     # Save and reload checkpoint with scaler
     ckpt_file = tmp_path / "fp16_test.pt"
-    save_checkpoint(ckpt_file, model, trainer.optimizer, global_step=1, tokens_seen=32, training_config=train_cfg, scaler=trainer.scaler)
+    save_checkpoint(
+        ckpt_file,
+        model,
+        trainer.optimizer,
+        global_step=1,
+        tokens_seen=32,
+        training_config=train_cfg,
+        model_config=cfg,
+        scaler=trainer.scaler,
+    )
     meta = load_checkpoint(ckpt_file, model, trainer.optimizer, scaler=trainer.scaler, device="cuda")
     assert meta["global_step"] == 1

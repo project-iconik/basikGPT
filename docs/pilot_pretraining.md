@@ -51,7 +51,7 @@ Pretraining accounting is formulated through rigorous arithmetic relations:
 | Stage | Target Budget | Typical Config ($B, T, G, W$) | Tokens / Step | Steps | Actual Tokens | Overshoot | Primary Verification Objective |
 |---|---|---|---|---|---|---|---|
 | **Stage A (Smoke)** | $10,000$ | $2, 64, 2, 1$ | $256$ | $40$ | $10,240$ | $+240$ | Pipeline mechanics, finite loss/grad, LR warmup, checkpointing, validation execution. |
-| **Stage B (Short Pilot)** | $100,000$ | $4, 128, 2, 1$ | $1,024$ | $98$ | $100,352$ | $+352$ | Convergence trajectory, gradient norm stability, validation cadence, resume continuity. |
+| **Stage B (Short Pilot)** | $100,000$ | $4, 128, 2, 1$ | $1,024$ | $98$ | $100,352$ | $+352$ | Overall downward loss trend (not per-step monotone), gradient-norm stability, validation cadence, state-continuous resume. |
 | **Stage C (Extended)** | $1,000,000$ | $4, 256, 4, 1$ | $4,096$ | $245$ | $1,003,520$ | $+3,520$ | Multi-thousand step regime, schedule boundary compliance, extended throughput tracking. |
 
 ---
@@ -113,9 +113,38 @@ Before transitioning to GPU qualification and main pretraining:
 - [x] **Resume Continuity**: Verifiable state resumption without step regression (DataLoader shuffle position is not restored; see §5.2).
 - [x] **Structured Summary Logging**: Complete machine-readable `pilot_summary.json` output.
 
-### 7.2. GPU Qualification Required (Milestone 9)
-- [ ] **CUDA Device Execution**: `NOT VALIDATED` (requires NVIDIA GPU environment).
-- [ ] **BF16 Mixed Precision Stability**: `NOT VALIDATED` (Ampere+ native hardware required).
-- [ ] **PyTorch SDPA Hardware Kernels**: `NOT VALIDATED` (FlashAttention-2 / Cutlass).
-- [ ] **VRAM Footprint & Micro-Batch Tuning**: `NOT VALIDATED`.
-- [ ] **Hardware Throughput (tok/sec)**: `NOT VALIDATED`.
+### 7.2. GPU Qualification (Milestone 14) — NVIDIA RTX PRO 4500 Blackwell, 32 GiB, RunPod
+
+Measured on git `4ddcd7900d53aa92550bd20c32887434a838150d` (working tree dirty with Milestone 14 tooling). Attention is reported as **PyTorch SDPA**; kernel dispatch (Flash / Memory-Efficient / Math) was not inspected.
+
+- [x] **CUDA FP32**: `VALIDATED` (tiny 10 steps; GPT-2 Small 8 steps, B=1, T=1024, G=1, finite loss/grad, token accounting exact)
+- [x] **BF16**: `VALIDATED` (same GPT-2 Small smoke; `torch.cuda.is_bf16_supported()=True`; no GradScaler)
+- [x] **PyTorch SDPA on GPU**: `VALIDATED` as the training backend (`attention_backend=sdpa`)
+- [x] **GPU checkpoint / state-continuous resume**: `VALIDATED` (CPU→GPU load, GPU→GPU resume of `global_step`/`tokens_seen`, GPU→CPU inspection)
+- [x] **Peak VRAM (allocated / reserved)**: `VALIDATED` (see capacity table; names are `max_memory_allocated` / `max_memory_reserved`)
+- [x] **GPU throughput (tokens/sec)**: `VALIDATED` at B=1, T=1024, G=1, 5 timing-warmup + 20 measured steps: FP32 ≈ 17.4k tok/s, BF16 ≈ 29.7k tok/s
+- [x] **Micro-batch capacity (T=1024)**: `VALIDATED` — B=1..16 PASS for FP32 and BF16; B=32 OOM for both
+
+Not in Milestone 14 scope:
+
+- [ ] **torch.compile**: see Milestone 15 (`docs/performance.md`)
+- [ ] **DDP / FSDP**: `NOT VALIDATED`
+- [ ] **2.5B-token main training**: `NOT EXECUTED`
+
+Provisional single-device main-run sketch using the largest PASS micro-batch on this GPU (not a final hyperparameter):
+
+$$B=16,\ T=1024,\ G=8,\ W=1 \Rightarrow \text{tokens/step} = 131{,}072$$
+
+Micro-batch $B$ is not the same as the token batch $B \times T \times G \times W$.
+
+### 7.3. GPU Performance Candidates (Milestone 15) — same GPU / PyTorch 2.8.0
+
+Measured with synthetic timing (uncompiled vs one controlled change) plus short FineWeb-Edu compiled runs (~196K tokens). Not a hyperparameter freeze. Full tables: [`docs/performance.md`](performance.md).
+
+Uncompiled BF16 T=1024 G=1: B=1 ≈ 30.1k tok/s; B=8 ≈ 75.2k; B=16 ≈ 79.3k. Gain flattens after B=8. AUTO SDPA matched FLASH_ATTENTION on B=8; MATH/eager ≈ 31k tok/s.
+
+Compiled Inductor `default` B=16: ≈ 87.2k tok/s synthetic, FineWeb short run finite + resume. `reduce-overhead` B=8: ≈ 79.2k tok/s, lower VRAM. Uncompiled B=8 G=8 remains a conservative 65,536 tokens/step sketch.
+
+2.5B analytical steps (ceiling): B=16 G=1 → 152,588; B=8 G=8 → 38,147; B=16 G=8 → 19,074.
+
+DDP / FSDP / 2.5B main training were not started.

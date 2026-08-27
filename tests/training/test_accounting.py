@@ -3,6 +3,7 @@
 import pytest
 from basikgpt.training.accounting import (
     TokenBudgetPlan,
+    calculate_compile_break_even_tokens,
     calculate_tokens_seen,
     calculate_training_steps,
 )
@@ -122,3 +123,44 @@ def test_calculate_tokens_seen() -> None:
 
     with pytest.raises(ValueError):
         calculate_tokens_seen(-1, 2, 64, 2)
+
+
+def test_compile_break_even_tokens() -> None:
+    """N = C * R0 * R1 / (R1 - R0). Compiled-not-faster and invalid inputs are safe."""
+    n = calculate_compile_break_even_tokens(
+        compile_overhead_seconds=10.0,
+        baseline_tokens_per_second=1000.0,
+        compiled_tokens_per_second=2000.0,
+    )
+    assert n == pytest.approx(20_000.0)
+
+    assert (
+        calculate_compile_break_even_tokens(
+            compile_overhead_seconds=5.0,
+            baseline_tokens_per_second=1000.0,
+            compiled_tokens_per_second=1000.0,
+        )
+        is None
+    )
+    assert (
+        calculate_compile_break_even_tokens(
+            compile_overhead_seconds=5.0,
+            baseline_tokens_per_second=2000.0,
+            compiled_tokens_per_second=1000.0,
+        )
+        is None
+    )
+    assert (
+        calculate_compile_break_even_tokens(
+            compile_overhead_seconds=0.0,
+            baseline_tokens_per_second=1000.0,
+            compiled_tokens_per_second=2000.0,
+        )
+        == 0.0
+    )
+    with pytest.raises(ValueError, match="compile_overhead_seconds"):
+        calculate_compile_break_even_tokens(-1.0, 1000.0, 2000.0)
+    with pytest.raises(ValueError, match="baseline_tokens_per_second"):
+        calculate_compile_break_even_tokens(1.0, 0.0, 2000.0)
+    with pytest.raises(ValueError, match="compiled_tokens_per_second"):
+        calculate_compile_break_even_tokens(1.0, 1000.0, -5.0)

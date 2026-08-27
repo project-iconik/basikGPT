@@ -109,6 +109,25 @@ def parse_args() -> argparse.Namespace:
         choices=["fp32", "bf16", "fp16"],
         help="Execution precision ('fp32', 'bf16', 'fp16') (default: fp32)",
     )
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="Opt-in torch.compile with the Inductor backend (default: disabled)",
+    )
+    parser.add_argument(
+        "--compile-mode",
+        type=str,
+        default="default",
+        choices=["default", "reduce-overhead"],
+        help="torch.compile mode when --compile is set (default: default). max-autotune is not enabled.",
+    )
+    parser.add_argument(
+        "--sdpa-kernel",
+        type=str,
+        default="auto",
+        choices=["auto", "math", "flash_attention", "efficient_attention", "cudnn_attention"],
+        help="Exclusive PyTorch SDPA kernel, or auto for default dispatch (default: auto)",
+    )
 
     # Evaluation & Logging Intervals
     parser.add_argument("--eval-interval", type=int, default=50, help="Validation interval in steps (default: 50)")
@@ -221,6 +240,9 @@ def main() -> None:
         log_interval=args.log_interval,
         device=args.device,
         precision=args.precision,
+        compile=args.compile,
+        compile_mode=args.compile_mode,
+        sdpa_kernel=args.sdpa_kernel,
         output_dir=str(out_dir),
         seed=args.seed,
     )
@@ -228,15 +250,20 @@ def main() -> None:
     tokens_per_step = args.batch_size * model_cfg.context_length * args.grad_accum_steps
 
     print("=" * 75)
-    print("  basikGPT Milestone 7: Pretraining Engine")
+    print("  basikGPT Pretraining")
     print("=" * 75)
     print(f"  Run Name:           {run_name}")
     print(f"  Output Directory:   {out_dir}")
     print(f"  Model Architecture: {args.model_preset} ({model.num_parameters():,} parameters)")
     print(f"  Context Length (T): {model_cfg.context_length}")
     print(f"  Attention Backend:  {model_cfg.attention_backend}")
+    print(f"  SDPA kernel:        {args.sdpa_kernel}")
     print(f"  Device:             {args.device}")
     print(f"  Precision:          {args.precision.upper()}")
+    if args.compile:
+        print(f"  torch.compile:      enabled (inductor, mode={args.compile_mode})")
+    else:
+        print("  torch.compile:      disabled")
     print(f"  Random Seed:        {args.seed}")
     print(f"  Batch Size (B):     {args.batch_size}")
     print(f"  Grad Accum (G):     {args.grad_accum_steps}")

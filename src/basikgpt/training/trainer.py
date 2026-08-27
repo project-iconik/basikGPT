@@ -12,12 +12,14 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from basikgpt.training.checkpoint import load_checkpoint, save_checkpoint
+from basikgpt.training.compile import compile_model
 from basikgpt.training.config import TrainingConfig
 from basikgpt.training.loss import compute_cross_entropy_loss
 from basikgpt.training.metadata import save_run_metadata, save_run_summary
 from basikgpt.training.optimizer import configure_optimizers
 from basikgpt.training.reproducibility import seed_everything
 from basikgpt.training.scheduler import get_learning_rate_at_step, update_learning_rate
+from basikgpt.training.sdpa import sdpa_kernel_context
 
 
 def resolve_device(device_str: str) -> torch.device:
@@ -75,6 +77,8 @@ class Trainer:
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.metrics_file = self.output_dir / "metrics.jsonl"
+        if overwrite and self.resume_from is None and self.metrics_file.exists():
+            self.metrics_file.unlink()
 
         # 3. Device & Precision resolution
         self.device = resolve_device(config.device)
@@ -103,8 +107,20 @@ class Trainer:
             self.autocast_ctx = contextlib.nullcontext()
             self.scaler = None
 
-        self.model = model.to(self.device)
-        self.optimizer = configure_optimizers(self.model, self.config)
+        # 4. Raw model ownership. torch.compile wraps a separate callable; checkpoints stay raw.
+        self.raw_model = model.to(self.device)
+        self.optimizer = configure_optimizers(self.raw_model, self.config)
+
+        if self.config.compile:
+            if self.device.type != "cuda":
+                raise ValueError(
+                    "torch.compile is only supported on CUDA in this project. "
+                    f"Requested compile=True on device '{self.device}'."
+                )
+            # Fail-fast: no silent uncompiled fallback if inductor compilation raises here.
+            self.model = compile_model(self.raw_model, mode=self.config.compile_mode)
+        else:
+            self.model = self.raw_model
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -114,12 +130,12 @@ class Trainer:
         self.best_val_loss: float | None = None
         self.last_val_loss: float | None = None
 
-        # 4. Save Initial Run Provenance Metadata
-        if hasattr(self.model, "config") and self.resume_from is None:
+        # 5. Save Initial Run Provenance Metadata (always from the uncompiled module)
+        if hasattr(self.raw_model, "config") and self.resume_from is None:
             save_run_metadata(
                 output_dir=self.output_dir,
                 run_name=self.run_name,
-                model_config=self.model.config,
+                model_config=self.raw_model.config,
                 training_config=self.config,
                 dataset_manifest=dataset_manifest,
                 dataset_manifest_path=dataset_manifest_path,
@@ -130,6 +146,10 @@ class Trainer:
         while True:
             for batch in loader:
                 yield batch
+
+    def _sdpa_context(self):
+        """Forces a single SDPA backend when configured; `auto` leaves PyTorch dispatch unchanged."""
+        return sdpa_kernel_context(self.config.sdpa_kernel)
 
     def evaluate(self, num_batches: int | None = None) -> float:
         """Runs an evaluation loop over validation batches without mutating training state.
@@ -150,7 +170,7 @@ class Trainer:
         total_loss = 0.0
         batches_evaluated = 0
 
-        with torch.no_grad():
+        with torch.inference_mode(), self._sdpa_context():
             for i, (x, y) in enumerate(self.val_loader):
                 if i >= num_batches:
                     break
@@ -187,29 +207,30 @@ class Trainer:
         step_tokens = 0
         accum_steps = self.config.gradient_accumulation_steps
 
-        for _ in range(accum_steps):
-            x, y = next(data_iter)
-            x = x.to(self.device, non_blocking=True)
-            y = y.to(self.device, non_blocking=True)
+        with self._sdpa_context():
+            for _ in range(accum_steps):
+                x, y = next(data_iter)
+                x = x.to(self.device, non_blocking=True)
+                y = y.to(self.device, non_blocking=True)
 
-            with self.autocast_ctx:
-                logits = self.model(x)
-                loss = compute_cross_entropy_loss(logits, y)
+                with self.autocast_ctx:
+                    logits = self.model(x)
+                    loss = compute_cross_entropy_loss(logits, y)
 
-            if not torch.isfinite(loss):
-                raise FloatingPointError(
-                    f"Non-finite training loss detected at global step {self.global_step}: {loss.item()}"
-                )
+                if not torch.isfinite(loss):
+                    raise FloatingPointError(
+                        f"Non-finite training loss detected at global step {self.global_step}: {loss.item()}"
+                    )
 
-            # Scale loss for gradient accumulation
-            loss_scaled = loss / accum_steps
-            if self.scaler is not None:
-                self.scaler.scale(loss_scaled).backward()
-            else:
-                loss_scaled.backward()
+                # Scale loss for gradient accumulation
+                loss_scaled = loss / accum_steps
+                if self.scaler is not None:
+                    self.scaler.scale(loss_scaled).backward()
+                else:
+                    loss_scaled.backward()
 
-            step_loss += loss.item() / accum_steps
-            step_tokens += y.numel()
+                step_loss += loss.item() / accum_steps
+                step_tokens += y.numel()
 
         # Unscale FP16 grads before measuring/clipping so the reported norm is in parameter space.
         if self.scaler is not None:
@@ -217,7 +238,7 @@ class Trainer:
 
         # clip_grad_norm_ returns the pre-clipping Euclidean norm. max_norm=inf measures without clipping.
         clip_max = self.config.max_grad_norm if self.config.max_grad_norm is not None else float("inf")
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), clip_max).item()
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.raw_model.parameters(), clip_max).item()
 
         if not math.isfinite(grad_norm):
             raise FloatingPointError(
@@ -250,11 +271,11 @@ class Trainer:
         if target_resume is not None:
             meta = load_checkpoint(
                 target_resume,
-                self.model,
+                self.raw_model,
                 self.optimizer,
                 scaler=self.scaler,
                 device=self.device,
-                expected_model_config=getattr(self.model, "config", None),
+                expected_model_config=getattr(self.raw_model, "config", None),
             )
             self.global_step = meta.get("global_step", 0)
             self.tokens_seen = meta.get("tokens_seen", 0)
@@ -271,6 +292,11 @@ class Trainer:
         if gpu_name:
             print(f"  GPU Model:          {gpu_name}")
         print(f"  Random Seed:        {self.config.seed}")
+        if self.config.compile:
+            print(f"  torch.compile:      enabled (backend=inductor, mode={self.config.compile_mode})")
+        else:
+            print("  torch.compile:      disabled")
+        print(f"  SDPA kernel:        {self.config.sdpa_kernel}")
         print(f"  Target steps:       {self.config.max_steps:,}")
         print(f"  Batch size:         {self.config.batch_size}")
         print(f"  Grad accumulation:  {self.config.gradient_accumulation_steps}")
@@ -317,12 +343,12 @@ class Trainer:
                     ckpt_path = self.output_dir / f"step-{self.global_step:08d}.pt"
                     save_checkpoint(
                         checkpoint_path=ckpt_path,
-                        model=self.model,
+                        model=self.raw_model,
                         optimizer=self.optimizer,
                         global_step=self.global_step,
                         tokens_seen=self.tokens_seen,
                         training_config=self.config,
-                        model_config=getattr(self.model, "config", None),
+                        model_config=getattr(self.raw_model, "config", None),
                         scaler=self.scaler,
                     )
 
@@ -338,11 +364,11 @@ class Trainer:
                     tok_per_sec = tokens_delta / max(1e-6, elapsed_since_log)
                     elapsed_total = now - start_time
 
-                    peak_vram_mb = (
-                        torch.cuda.max_memory_allocated(self.device) / (1024 * 1024)
-                        if self.device.type == "cuda"
-                        else None
-                    )
+                    peak_allocated_vram_bytes = None
+                    peak_reserved_vram_bytes = None
+                    if self.device.type == "cuda":
+                        peak_allocated_vram_bytes = int(torch.cuda.max_memory_allocated(self.device))
+                        peak_reserved_vram_bytes = int(torch.cuda.max_memory_reserved(self.device))
 
                     train_record = {
                         "type": "train",
@@ -355,14 +381,20 @@ class Trainer:
                         "tokens_per_sec": tok_per_sec,
                         "elapsed_seconds": elapsed_total,
                     }
-                    if peak_vram_mb is not None:
-                        train_record["peak_vram_mb"] = peak_vram_mb
+                    if peak_allocated_vram_bytes is not None:
+                        train_record["peak_allocated_vram_bytes"] = peak_allocated_vram_bytes
+                        train_record["peak_reserved_vram_bytes"] = peak_reserved_vram_bytes
+                        # Allocated bytes expressed in MiB for log readability. Not nvidia-smi usage.
+                        train_record["peak_allocated_vram_mib"] = peak_allocated_vram_bytes / (1024 * 1024)
 
                     history.append(train_record)
                     self._append_metrics_record(train_record)
 
                     val_str = f" | Val: {val_loss:.4f}" if val_loss is not None else ""
-                    vram_str = f" | VRAM: {peak_vram_mb:.0f}MB" if peak_vram_mb is not None else ""
+                    vram_str = ""
+                    if peak_allocated_vram_bytes is not None:
+                        allocated_mib = peak_allocated_vram_bytes / (1024 * 1024)
+                        vram_str = f" | Allocated: {allocated_mib:.0f} MiB"
                     print(
                         f"Step {self.global_step:06d}/{self.config.max_steps:06d} | "
                         f"Loss: {step_metrics['loss']:.4f} | "
@@ -394,12 +426,12 @@ class Trainer:
             final_ckpt = self.output_dir / "step-final.pt"
             save_checkpoint(
                 checkpoint_path=final_ckpt,
-                model=self.model,
+                model=self.raw_model,
                 optimizer=self.optimizer,
                 global_step=self.global_step,
                 tokens_seen=self.tokens_seen,
                 training_config=self.config,
-                model_config=getattr(self.model, "config", None),
+                model_config=getattr(self.raw_model, "config", None),
                 scaler=self.scaler,
             )
             save_run_summary(
@@ -422,12 +454,12 @@ class Trainer:
             interrupted_ckpt = self.output_dir / "step-interrupted.pt"
             save_checkpoint(
                 checkpoint_path=interrupted_ckpt,
-                model=self.model,
+                model=self.raw_model,
                 optimizer=self.optimizer,
                 global_step=self.global_step,
                 tokens_seen=self.tokens_seen,
                 training_config=self.config,
-                model_config=getattr(self.model, "config", None),
+                model_config=getattr(self.raw_model, "config", None),
                 scaler=self.scaler,
             )
             save_run_summary(

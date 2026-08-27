@@ -3,6 +3,9 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from basikgpt.training.compile import validate_compile_mode
+from basikgpt.training.sdpa import validate_sdpa_kernel_name
+
 Precision = Literal["fp32", "bf16", "fp16"]
 
 
@@ -43,6 +46,11 @@ class TrainingConfig:
     output_dir: str = "runs/baseline"
     seed: int = 1337
 
+    # Opt-in performance knobs. Defaults preserve the Milestone 14 uncompiled path.
+    compile: bool = False
+    compile_mode: str = "default"
+    sdpa_kernel: str = "auto"
+
     def __post_init__(self) -> None:
         if self.learning_rate <= 0:
             raise ValueError(f"learning_rate must be positive, got {self.learning_rate}")
@@ -80,3 +88,5 @@ class TrainingConfig:
             raise ValueError(f"log_interval must be positive, got {self.log_interval}")
         if self.precision not in ("fp32", "bf16", "fp16"):
             raise ValueError(f"precision must be one of 'fp32', 'bf16', 'fp16', got '{self.precision}'")
+        validate_compile_mode(self.compile_mode)
+        object.__setattr__(self, "sdpa_kernel", validate_sdpa_kernel_name(self.sdpa_kernel))

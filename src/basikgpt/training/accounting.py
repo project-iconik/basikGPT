@@ -123,3 +123,50 @@ def calculate_tokens_seen(
         raise ValueError("Batching dimensions must all be positive integers.")
 
     return optimizer_steps * micro_batch_size * context_length * grad_accum_steps * world_size
+
+
+def calculate_compile_break_even_tokens(
+    compile_overhead_seconds: float,
+    baseline_tokens_per_second: float,
+    compiled_tokens_per_second: float,
+) -> float | None:
+    """Tokens needed for compiled throughput to recover compile overhead C.
+
+    Let C be compile overhead in seconds, R0 baseline tokens/sec, R1 compiled
+    tokens/sec. Times to process N tokens:
+
+        T0 = N / R0
+        T1 = C + N / R1
+
+    Break-even T1 = T0 yields:
+
+        N = C * R0 * R1 / (R1 - R0)
+
+    Returns None when compiled is not faster (R1 <= R0), including equal rates.
+    Zero overhead with a faster compiled path returns 0.0.
+
+    Raises:
+        ValueError: If overhead is negative or either throughput is not positive.
+    """
+    if compile_overhead_seconds < 0:
+        raise ValueError(
+            f"compile_overhead_seconds must be non-negative, got {compile_overhead_seconds}"
+        )
+    if baseline_tokens_per_second <= 0:
+        raise ValueError(
+            f"baseline_tokens_per_second must be positive, got {baseline_tokens_per_second}"
+        )
+    if compiled_tokens_per_second <= 0:
+        raise ValueError(
+            f"compiled_tokens_per_second must be positive, got {compiled_tokens_per_second}"
+        )
+    if compiled_tokens_per_second <= baseline_tokens_per_second:
+        return None
+    if compile_overhead_seconds == 0:
+        return 0.0
+    return (
+        compile_overhead_seconds
+        * baseline_tokens_per_second
+        * compiled_tokens_per_second
+        / (compiled_tokens_per_second - baseline_tokens_per_second)
+    )

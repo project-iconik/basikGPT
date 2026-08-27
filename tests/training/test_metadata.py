@@ -136,4 +136,12 @@ def test_git_and_system_metadata_helpers() -> None:
     assert "python_version" in sys_meta
     assert "pytorch_version" in sys_meta
     assert "numpy_version" in sys_meta
-    assert "cpu_count" in sys_meta
+    assert "cuda_available" in sys_meta
+    assert "gpu_count" in sys_meta
+    assert "gpu_name" in sys_meta
+    assert "compute_capability" in sys_meta
+    assert "total_vram_bytes" in sys_meta
+    assert "bf16_supported" in sys_meta
+    assert "nvidia_driver" in sys_meta
+    assert "cuda_runtime" in sys_meta
+    assert "cloud_provider" in sys_meta
