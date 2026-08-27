@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "basikgpt"
+version = "0.1.0"
+description = "Educational, reproducible, and open-source GPT-2 Small pretraining from scratch in PyTorch."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+authors = [
+    { name = "basikGPT Contributors" }
+]
+keywords = [
+    "gpt-2",
+    "transformer",
+    "pytorch",
+    "pretraining",
+    "llm-from-scratch",
+    "educational",
+]
+dependencies = [
+    "torch>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-v --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
