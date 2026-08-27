@@ -124,8 +124,14 @@ class GPT(nn.Module):
             logits: Output logits tensor with shape (B, T, V).
 
         Raises:
+            TypeError: If input_ids is a floating-point tensor.
             ValueError: If input tensor is not 2D or sequence length T exceeds context_length.
         """
+        if input_ids.is_floating_point():
+            raise TypeError(
+                f"Expected integer tensor for input_ids, got floating point dtype {input_ids.dtype}."
+            )
+
         if input_ids.ndim != 2:
             raise ValueError(
                 f"Expected 2D input tensor of shape (batch_size, sequence_length), "

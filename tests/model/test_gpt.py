@@ -62,18 +62,22 @@ def test_gpt_different_sequence_lengths(backend: AttentionBackend, seq_len: int)
 
 
 def test_gpt_input_validation() -> None:
-    """Verifies input rank validation and sequence length overflow errors."""
+    """Verifies input rank, type, and sequence length overflow validation."""
     config = make_config()
     model = GPT(config)
 
-    # Test 1: Non-2D inputs (1D or 3D)
+    # Test 1: Floating-point tensor raises TypeError
+    with pytest.raises(TypeError, match="Expected integer tensor for input_ids"):
+        model(torch.randn(2, 8))
+
+    # Test 2: Non-2D inputs (1D or 3D) raise ValueError
     with pytest.raises(ValueError, match="Expected 2D input tensor"):
         model(torch.tensor([1, 2, 3]))
 
     with pytest.raises(ValueError, match="Expected 2D input tensor"):
         model(torch.randint(0, config.vocab_size, (2, 4, 1)))
 
-    # Test 2: Sequence length exceeds context_length
+    # Test 3: Sequence length exceeds context_length
     overflow_T = config.context_length + 1
     with pytest.raises(ValueError, match="exceeds maximum configured context length"):
         model(torch.randint(0, config.vocab_size, (2, overflow_T)))

@@ -149,3 +149,37 @@ For any sequence of length $T$, the causal attention mask ensures that for each 
 $$\text{Attention}(Q, K, V)_{i, j} = 0 \quad \forall j > i$$
 
 This invariant will be tested directly in unit tests in subsequent milestones.
+
+---
+
+## 4. Parameter & Naming Mapping (OpenAI / HuggingFace $\iff$ basikGPT)
+
+This reference mapping defines how OpenAI / HuggingFace `GPT2LMHeadModel` state dict keys and weight matrix layouts map to `basikGPT`.
+
+### 4.1. Weight Layout Conventions
+- **HuggingFace `Conv1D`**: Uses OpenAI's 1D convolutional linear layer format where 2D weight matrices are stored with shape `(in_features, out_features)`.
+- **PyTorch `nn.Linear` (basikGPT)**: Follows standard PyTorch convention where weight matrices are stored with shape `(out_features, in_features)`.
+- **Transformation Rule**: Every 2D projection weight matrix from HuggingFace MUST be transposed (`.t()`) when importing into `basikGPT`.
+
+### 4.2. Complete State Dict Mapping Table
+
+| Component | HuggingFace / OpenAI Key | HF Shape | basikGPT Parameter Key | basikGPT Shape | Transpose Required? |
+|---|---|---|---|---|:---:|
+| **Token Embedding** | `transformer.wte.weight` | `(50257, 768)` | `wte.weight` | `(50257, 768)` | No |
+| **Positional Embedding** | `transformer.wpe.weight` | `(1024, 768)` | `wpe.weight` | `(1024, 768)` | No |
+| **Block $l$ LayerNorm 1** | `transformer.h.{l}.ln_1.weight` | `(768,)` | `blocks.{l}.ln_1.weight` | `(768,)` | No |
+| | `transformer.h.{l}.ln_1.bias` | `(768,)` | `blocks.{l}.ln_1.bias` | `(768,)` | No |
+| **Block $l$ Attention QKV** | `transformer.h.{l}.attn.c_attn.weight` | `(768, 2304)` | `blocks.{l}.attn.qkv_proj.weight` | `(2304, 768)` | **Yes (`.t()`)** |
+| | `transformer.h.{l}.attn.c_attn.bias` | `(2304,)` | `blocks.{l}.attn.qkv_proj.bias` | `(2304,)` | No |
+| **Block $l$ Attention Out** | `transformer.h.{l}.attn.c_proj.weight` | `(768, 768)` | `blocks.{l}.attn.out_proj.weight` | `(768, 768)` | **Yes (`.t()`)** |
+| | `transformer.h.{l}.attn.c_proj.bias` | `(768,)` | `blocks.{l}.attn.out_proj.bias` | `(768,)` | No |
+| **Block $l$ LayerNorm 2** | `transformer.h.{l}.ln_2.weight` | `(768,)` | `blocks.{l}.ln_2.weight` | `(768,)` | No |
+| | `transformer.h.{l}.ln_2.bias` | `(768,)` | `blocks.{l}.ln_2.bias` | `(768,)` | No |
+| **Block $l$ MLP Expansion** | `transformer.h.{l}.mlp.c_fc.weight` | `(768, 3072)` | `blocks.{l}.mlp.fc_in.weight` | `(3072, 768)` | **Yes (`.t()`)** |
+| | `transformer.h.{l}.mlp.c_fc.bias` | `(3072,)` | `blocks.{l}.mlp.fc_in.bias` | `(3072,)` | No |
+| **Block $l$ MLP Contraction** | `transformer.h.{l}.mlp.c_proj.weight` | `(3072, 768)` | `blocks.{l}.mlp.fc_out.weight` | `(768, 3072)` | **Yes (`.t()`)** |
+| | `transformer.h.{l}.mlp.c_proj.bias` | `(768,)` | `blocks.{l}.mlp.fc_out.bias` | `(768,)` | No |
+| **Final LayerNorm** | `transformer.ln_f.weight` | `(768,)` | `ln_f.weight` | `(768,)` | No |
+| | `transformer.ln_f.bias` | `(768,)` | `ln_f.bias` | `(768,)` | No |
+| **LM Head (Tied)** | `lm_head.weight` | `(50257, 768)` | `lm_head.weight` (tied to `wte`) | `(50257, 768)` | Tied |
+
