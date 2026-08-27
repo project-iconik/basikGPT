@@ -16,6 +16,14 @@ from basikgpt.model.attention import CausalSelfAttention
 from basikgpt.model.block import TransformerBlock
 from basikgpt.model.gpt import GPT
 from basikgpt.model.mlp import MLP
+from basikgpt.training import (
+    Trainer,
+    TrainingConfig,
+    compute_cross_entropy_loss,
+    configure_optimizers,
+    load_checkpoint,
+    save_checkpoint,
+)
 
 __version__ = "0.1.0"
 
@@ -33,5 +41,11 @@ __all__ = [
     "ShardedTokenDataset",
     "TokenShardWriter",
     "prepare_fineweb_edu",
+    "TrainingConfig",
+    "Trainer",
+    "compute_cross_entropy_loss",
+    "configure_optimizers",
+    "save_checkpoint",
+    "load_checkpoint",
     "__version__",
 ]
