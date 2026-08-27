@@ -28,6 +28,19 @@ class GPT2Tokenizer:
         """End-Of-Text token ID (50,256) serving as the canonical document boundary separator."""
         return self.encoding.eot_token
 
+    def encode(self, text: str) -> list[int]:
+        """Encodes a text prompt into token IDs without appending an EOT token.
+
+        Args:
+            text: Prompt or general text string to tokenize.
+
+        Returns:
+            List of integer token IDs.
+        """
+        if not text:
+            return []
+        return self.encoding.encode_ordinary(text)
+
     def encode_document(self, text: str) -> list[int]:
         """Encodes a single document string into a sequence of token IDs ending with EOT.
 

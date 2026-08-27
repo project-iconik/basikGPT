@@ -6,6 +6,7 @@ import random
 from typing import Any
 import torch
 import torch.nn as nn
+from basikgpt.config import GPTConfig
 from basikgpt.training.config import TrainingConfig
 
 CHECKPOINT_SCHEMA_VERSION = 1
@@ -187,3 +188,71 @@ def load_checkpoint(
         "model_config": payload.get("model_config", {}),
         "extra_state": payload.get("extra_state", {}),
     }
+
+
+def load_model_from_checkpoint(
+    checkpoint_path: Path | str,
+    device: str | torch.device = "cpu",
+    model_config: GPTConfig | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Loads a GPT model from a checkpoint for inference or evaluation without needing optimizer state.
+
+    Args:
+        checkpoint_path: Path to the .pt checkpoint file.
+        device: Target device for model execution.
+        model_config: Optional GPTConfig override if model_config is not serialized in checkpoint.
+
+    Returns:
+        Tuple of (model, metadata_dict) where model is set to eval mode.
+    """
+    path = Path(checkpoint_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Checkpoint file not found: {path}")
+
+    try:
+        payload = torch.load(path, map_location=device, weights_only=False)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load checkpoint '{path}': corrupted or unreadable file") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Invalid checkpoint format in '{path}': expected dict, got {type(payload).__name__}")
+
+    # 1. Reconstruct GPTConfig
+    if model_config is not None:
+        cfg = model_config
+    elif "model_config" in payload and payload["model_config"]:
+        raw_cfg = payload["model_config"]
+        if isinstance(raw_cfg, GPTConfig):
+            cfg = raw_cfg
+        elif isinstance(raw_cfg, dict):
+            cfg = GPTConfig(**raw_cfg)
+        else:
+            cfg = GPTConfig.gpt2_small()
+    else:
+        cfg = GPTConfig.gpt2_small()
+
+    # 2. Instantiate model
+    from basikgpt.model.gpt import GPT
+    model = GPT(cfg)
+
+    # 3. Load model weights
+    state_dict = payload.get("model_state_dict", payload)
+    model.load_state_dict(state_dict)
+
+    # 4. Weight tying invariant
+    if hasattr(model, "lm_head") and hasattr(model, "wte"):
+        if model.lm_head.weight is not model.wte.weight:
+            model.lm_head.weight = model.wte.weight
+
+    model.to(device)
+    model.eval()
+
+    meta = {
+        "global_step": payload.get("global_step", 0),
+        "tokens_seen": payload.get("tokens_seen", 0),
+        "schema_version": payload.get("schema_version", 1),
+        "model_config": cfg,
+        "training_config": payload.get("training_config", {}),
+        "extra_state": payload.get("extra_state", {}),
+    }
+    return model, meta

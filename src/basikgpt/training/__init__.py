@@ -3,6 +3,7 @@
 from basikgpt.training.checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
     load_checkpoint,
+    load_model_from_checkpoint,
     save_checkpoint,
 )
 from basikgpt.training.compatibility import validate_dataset_model_compatibility
@@ -32,6 +33,7 @@ __all__ = [
     "update_learning_rate",
     "save_checkpoint",
     "load_checkpoint",
+    "load_model_from_checkpoint",
     "CHECKPOINT_SCHEMA_VERSION",
     "Trainer",
     "resolve_device",
