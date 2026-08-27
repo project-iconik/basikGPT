@@ -47,13 +47,13 @@ class TransformerBlock(nn.Module):
     def __init__(self, config: GPTConfig) -> None:
         super().__init__()
         # Pre-attention LayerNorm
-        self.ln_1 = nn.LayerNorm(config.d_model, eps=config.layer_norm_eps)
+        self.ln_1 = nn.LayerNorm(config.d_model, eps=config.layer_norm_eps, bias=config.bias)
 
         # Causal Multi-Head Self-Attention (supports 'eager' and 'sdpa' backends)
         self.attn = CausalSelfAttention(config)
 
         # Pre-MLP LayerNorm
-        self.ln_2 = nn.LayerNorm(config.d_model, eps=config.layer_norm_eps)
+        self.ln_2 = nn.LayerNorm(config.d_model, eps=config.layer_norm_eps, bias=config.bias)
 
         # Position-wise Feed-Forward Network (MLP)
         self.mlp = MLP(config)

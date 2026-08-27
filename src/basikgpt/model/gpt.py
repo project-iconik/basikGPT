@@ -4,6 +4,7 @@ Assembles Token & Positional Embeddings, Transformer Decoder Blocks,
 Final LayerNorm, and the Language Model Head with Weight Tying.
 """
 
+import math
 import torch
 import torch.nn as nn
 
@@ -60,7 +61,7 @@ class GPT(nn.Module):
         )
 
         # 5. Final LayerNorm before projection to logits
-        self.ln_f = nn.LayerNorm(config.d_model, eps=config.layer_norm_eps)
+        self.ln_f = nn.LayerNorm(config.d_model, eps=config.layer_norm_eps, bias=config.bias)
 
         # 6. Language Model Head: projects hidden state C to vocabulary distribution V
         # Bias is False in standard GPT-2 architecture
@@ -70,6 +71,30 @@ class GPT(nn.Module):
         # Ties the output lm_head weight matrix to the input token embedding matrix wte.weight.
         # This reduces parameter count by V * C and shares semantic representations.
         self.lm_head.weight = self.wte.weight
+
+        # 8. Standard GPT-2 Weight Initialization:
+        # Initialize all modules with N(0, 0.02) and LayerNorm with (1.0, 0.0)
+        self.apply(self._init_weights)
+
+        # Apply GPT-2 special scaled initialization for residual projection layers
+        # std = 0.02 / sqrt(2 * n_layers) prevents variance explosion across deep residual streams
+        residual_std = 0.02 / math.sqrt(2 * self.config.n_layers)
+        for pn, p in self.named_parameters():
+            if pn.endswith("out_proj.weight") or pn.endswith("fc_out.weight"):
+                torch.nn.init.normal_(p, mean=0.0, std=residual_std)
+
+    def _init_weights(self, module: nn.Module) -> None:
+        """Initializes model weights following the canonical GPT-2 normal distribution specification."""
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        elif isinstance(module, nn.LayerNorm):
+            torch.nn.init.ones_(module.weight)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
 
     def num_parameters(self, non_embedding: bool = False) -> int:
         """Calculates total unique parameter count of the instantiated model.

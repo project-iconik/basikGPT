@@ -202,3 +202,25 @@ def test_block_parameter_counts_exact_match() -> None:
     expected_gpt2_block_params = 7_087_872
 
     assert actual_gpt2_block_params == expected_gpt2_block_params
+
+
+def test_block_parameter_counts_without_bias() -> None:
+    """Verifies that when bias=False, LayerNorms and Linear layers cleanly omit biases."""
+    cfg_no_bias = make_config(bias=False)
+    block_no_bias = TransformerBlock(cfg_no_bias)
+
+    # LayerNorms must not have bias parameters when bias=False
+    assert block_no_bias.ln_1.bias is None
+    assert block_no_bias.ln_2.bias is None
+
+    C = cfg_no_bias.d_model
+    F = cfg_no_bias.d_ff
+
+    expected_ln1 = C
+    expected_attn = (C * 3 * C) + (C * C)
+    expected_ln2 = C
+    expected_mlp = (C * F) + (F * C)
+    expected_total = expected_ln1 + expected_attn + expected_ln2 + expected_mlp
+
+    actual_params = sum(p.numel() for p in block_no_bias.parameters())
+    assert actual_params == expected_total

@@ -264,3 +264,63 @@ def test_gpt_eager_sdpa_full_model_parity() -> None:
         atol=1e-5,
         msg="Full model logits diverged between Eager and SDPA backends.",
     )
+
+
+def test_gpt_weight_initialization() -> None:
+    """Verifies that GPT model parameters follow the canonical GPT-2 initialization policy."""
+    import math
+
+    torch.manual_seed(42)
+    config = make_config(n_layers=4)
+    model = GPT(config)
+
+    # 1. Embeddings initialized with std ~ 0.02 and mean ~ 0.0
+    assert abs(model.wte.weight.mean().item()) < 0.01
+    assert 0.015 < model.wte.weight.std().item() < 0.025
+
+    assert abs(model.wpe.weight.mean().item()) < 0.01
+    assert 0.015 < model.wpe.weight.std().item() < 0.025
+
+    # 2. Linear projection layers initialized with std ~ 0.02
+    qkv_weight = model.blocks[0].attn.qkv_proj.weight
+    assert abs(qkv_weight.mean().item()) < 0.01
+    assert 0.015 < qkv_weight.std().item() < 0.025
+
+    # 3. Residual projections scaled by 0.02 / sqrt(2 * n_layers)
+    expected_residual_std = 0.02 / math.sqrt(2 * config.n_layers)
+    out_proj_weight = model.blocks[0].attn.out_proj.weight
+    fc_out_weight = model.blocks[0].mlp.fc_out.weight
+
+    assert abs(out_proj_weight.std().item() - expected_residual_std) < 0.003
+    assert abs(fc_out_weight.std().item() - expected_residual_std) < 0.003
+
+    # 4. Biases initialized to zero
+    assert model.blocks[0].attn.qkv_proj.bias is not None
+    assert (model.blocks[0].attn.qkv_proj.bias == 0.0).all()
+
+    # 5. LayerNorm weights initialized to 1.0 and biases to 0.0
+    assert (model.ln_f.weight == 1.0).all()
+    assert model.ln_f.bias is not None
+    assert (model.ln_f.bias == 0.0).all()
+
+
+def test_gpt_bias_disabled_parameter_count() -> None:
+    """Verifies that bias=False on the full model completely eliminates LayerNorm and Linear biases."""
+    config_no_bias = make_config(bias=False, n_layers=2)
+    model_no_bias = GPT(config_no_bias)
+
+    # LayerNorms must not have bias parameters
+    assert model_no_bias.ln_f.bias is None
+    assert model_no_bias.blocks[0].ln_1.bias is None
+    assert model_no_bias.blocks[0].ln_2.bias is None
+
+    # Linears must not have bias parameters
+    assert model_no_bias.blocks[0].attn.qkv_proj.bias is None
+    assert model_no_bias.blocks[0].attn.out_proj.bias is None
+    assert model_no_bias.blocks[0].mlp.fc_in.bias is None
+    assert model_no_bias.blocks[0].mlp.fc_out.bias is None
+
+    # Exact parameter count must match analytical calculator
+    actual_unique = model_no_bias.num_parameters()
+    expected_unique = config_no_bias.num_total_parameters(tied_weights=True)
+    assert actual_unique == expected_unique

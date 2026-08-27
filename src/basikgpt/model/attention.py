@@ -81,7 +81,7 @@ class CausalSelfAttention(nn.Module):
 
         # 2. Slice and apply causal mask to prevent attending to future tokens (j > i)
         mask = self.causal_mask[:, :, :T, :T]
-        scores = scores.masked_fill(~mask, float("-inf"))
+        scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
 
         # 3. Softmax along key position dimension (dim=-1) to obtain probability distribution
         attn_weights = torch.softmax(scores, dim=-1)
