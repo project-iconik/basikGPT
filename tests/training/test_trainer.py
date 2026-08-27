@@ -189,8 +189,8 @@ def test_resume_continuation(tmp_path: Path) -> None:
     # Create fresh Model C and resume for step 2
     modelC = GPT(cfg)
     train_cfgC = TrainingConfig(learning_rate=1e-3, max_steps=2, warmup_steps=0, batch_size=2, gradient_accumulation_steps=1, output_dir=str(tmp_path / "runB"))
-    trainerC = Trainer(modelC, train_cfgC, DataLoader(ds, batch_size=2, shuffle=False))
-    trainerC.train(resume_from=ckpt_path)
+    trainerC = Trainer(modelC, train_cfgC, DataLoader(ds, batch_size=2, shuffle=False), resume_from=ckpt_path)
+    trainerC.train()
 
     # Model A and Model C should have identical weights after 2 steps
     for (nA, pA), (nC, pC) in zip(modelA.named_parameters(), modelC.named_parameters()):
