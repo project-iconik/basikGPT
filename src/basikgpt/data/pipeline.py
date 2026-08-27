@@ -1,16 +1,19 @@
 """End-to-end tokenization and sharding pipeline for HuggingFace FineWeb-Edu."""
 
+from __future__ import annotations
+
 from collections.abc import Iterable
 import hashlib
 from pathlib import Path
 import time
-from typing import Any
-from datasets import load_dataset
+from typing import TYPE_CHECKING, Any
 
 from basikgpt.data.manifest import create_manifest, save_manifest
 from basikgpt.data.shard import TokenShardWriter
 from basikgpt.data.split import get_document_split
-from basikgpt.data.tokenizer import GPT2Tokenizer
+
+if TYPE_CHECKING:
+    from basikgpt.data.tokenizer import GPT2Tokenizer
 
 
 def process_document_stream(
@@ -46,16 +49,24 @@ def process_document_stream(
 
     docs_seen = 0
     docs_skipped = 0
+    docs_skipped_for_budget = 0
     train_docs = 0
     val_docs = 0
     train_tokens = 0
     val_tokens = 0
+    train_closed = False
+    val_closed = False
 
     start_time = time.perf_counter()
 
     for item in doc_stream:
-        # Check if both budgets are satisfied
-        if train_tokens >= max_train_tokens and val_tokens >= max_validation_tokens:
+        if train_closed and val_closed:
+            break
+        if train_tokens >= max_train_tokens:
+            train_closed = True
+        if val_tokens >= max_validation_tokens:
+            val_closed = True
+        if train_closed and val_closed:
             break
 
         docs_seen += 1
@@ -77,21 +88,38 @@ def process_document_stream(
         split = get_document_split(str(doc_id), val_fraction=val_fraction)
 
         if split == "train":
-            if train_tokens < max_train_tokens:
-                remaining_budget = max_train_tokens - train_tokens
-                if len(tokens) > remaining_budget:
-                    tokens = tokens[:remaining_budget]
-                train_writer.add_tokens(tokens)
-                train_tokens += len(tokens)
-                train_docs += 1
+            if train_closed:
+                continue
+            if train_tokens + len(tokens) > max_train_tokens:
+                docs_skipped_for_budget += 1
+                # A document larger than the full budget can never be stored intact;
+                # skip it and keep looking. Once some tokens are stored, close the split
+                # rather than scanning indefinitely for a tiny remainder filler.
+                if train_tokens > 0:
+                    train_closed = True
+                continue
+            train_writer.add_tokens(tokens)
+            train_tokens += len(tokens)
+            train_docs += 1
+            if train_tokens >= max_train_tokens:
+                train_closed = True
         else:
-            if val_tokens < max_validation_tokens:
-                remaining_budget = max_validation_tokens - val_tokens
-                if len(tokens) > remaining_budget:
-                    tokens = tokens[:remaining_budget]
-                val_writer.add_tokens(tokens)
-                val_tokens += len(tokens)
-                val_docs += 1
+            if val_closed:
+                continue
+            if val_tokens + len(tokens) > max_validation_tokens:
+                docs_skipped_for_budget += 1
+                if val_tokens > 0:
+                    val_closed = True
+                continue
+            val_writer.add_tokens(tokens)
+            val_tokens += len(tokens)
+            val_docs += 1
+            if val_tokens >= max_validation_tokens:
+                val_closed = True
+
+        if docs_skipped_for_budget >= 10_000:
+            train_closed = True
+            val_closed = True
 
         if docs_seen % log_interval == 0:
             elapsed = time.perf_counter() - start_time
@@ -114,6 +142,7 @@ def process_document_stream(
         "train_documents": train_docs,
         "validation_documents": val_docs,
         "skipped_documents": docs_skipped,
+        "skipped_for_budget": docs_skipped_for_budget,
         "train_tokens": train_tokens,
         "validation_tokens": val_tokens,
     }
@@ -140,6 +169,9 @@ def prepare_fineweb_edu(
                 f"Output directory '{output_path}' already exists and is not empty. "
                 f"Pass overwrite=True to overwrite."
             )
+
+    from datasets import load_dataset
+    from basikgpt.data.tokenizer import GPT2Tokenizer
 
     output_path.mkdir(parents=True, exist_ok=True)
     tokenizer = GPT2Tokenizer()

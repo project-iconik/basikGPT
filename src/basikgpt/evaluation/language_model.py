@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 from basikgpt.config import GPTConfig
 from basikgpt.training.loss import compute_cross_entropy_loss
-from basikgpt.training.metadata import atomic_save_json
+from basikgpt.training.metadata import atomic_save_json, extract_dataset_provenance
 from basikgpt.training.reproducibility import get_git_metadata, get_system_metadata
 
 
@@ -104,16 +104,7 @@ def save_evaluation_result(
     git_info = get_git_metadata()
     sys_info = get_system_metadata()
 
-    # Extract dataset provenance
-    revision = None
-    dataset_repo = None
-    dataset_cfg = None
-    if dataset_manifest:
-        prov = dataset_manifest.get("dataset_provenance") or dataset_manifest.get("provenance") or {}
-        revision = prov.get("revision") or prov.get("dataset_revision")
-        dataset_repo = prov.get("repository") or prov.get("dataset_repository")
-        dataset_cfg = prov.get("config") or prov.get("dataset_config")
-
+    extracted = extract_dataset_provenance(dataset_manifest)
     payload = {
         "evaluation_format_version": 1,
         "evaluated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -123,9 +114,9 @@ def save_evaluation_result(
         "model_config": model_cfg_dict,
         "dataset": {
             "manifest_path": str(dataset_manifest_path) if dataset_manifest_path else None,
-            "repository": dataset_repo,
-            "config": dataset_cfg,
-            "revision": revision,
+            "repository": extracted["repository"],
+            "config": extracted["config"],
+            "revision": extracted["revision"],
         },
         "git": git_info,
         "system": sys_info,

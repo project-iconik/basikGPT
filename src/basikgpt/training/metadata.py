@@ -47,6 +47,38 @@ def load_json(path: Path | str) -> dict[str, Any]:
         return json.load(f)
 
 
+def extract_dataset_provenance(manifest: dict[str, Any] | None) -> dict[str, Any]:
+    """Reads dataset identity fields from either the canonical or legacy manifest schema.
+
+    Canonical keys live under `dataset_provenance` / `statistics`.
+    Legacy test/CLI payloads may use `provenance` / `token_statistics`.
+    """
+    if not manifest:
+        return {
+            "revision": None,
+            "repository": None,
+            "config": None,
+            "train_tokens": None,
+            "validation_tokens": None,
+            "tokenizer_encoding": None,
+            "eot_token_id": None,
+        }
+
+    prov = manifest.get("dataset_provenance") or manifest.get("provenance") or {}
+    stats = manifest.get("statistics") or manifest.get("token_statistics") or {}
+    tok_info = manifest.get("tokenizer") or {}
+
+    return {
+        "revision": prov.get("revision") or prov.get("dataset_revision"),
+        "repository": prov.get("repository") or prov.get("dataset_repository"),
+        "config": prov.get("config") or prov.get("dataset_config"),
+        "train_tokens": stats.get("train_tokens"),
+        "validation_tokens": stats.get("validation_tokens"),
+        "tokenizer_encoding": tok_info.get("encoding") or tok_info.get("encoding_name"),
+        "eot_token_id": tok_info.get("eot_token_id"),
+    }
+
+
 def save_run_metadata(
     output_dir: Path | str,
     run_name: str,
@@ -86,27 +118,14 @@ def save_run_metadata(
         atomic_save_json(dir_path / "dataset.json", dataset_manifest)
 
     # Provenance fields from manifest
-    revision = None
-    train_toks = None
-    val_toks = None
-    tokenizer_enc = None
-    eot_id = None
-    dataset_repo = None
-    dataset_cfg = None
-
-    if dataset_manifest:
-        prov = dataset_manifest.get("dataset_provenance") or dataset_manifest.get("provenance") or {}
-        revision = prov.get("revision") or prov.get("dataset_revision")
-        dataset_repo = prov.get("repository") or prov.get("dataset_repository")
-        dataset_cfg = prov.get("config") or prov.get("dataset_config")
-
-        stats = dataset_manifest.get("statistics") or dataset_manifest.get("token_statistics") or {}
-        train_toks = stats.get("train_tokens")
-        val_toks = stats.get("validation_tokens")
-
-        tok_info = dataset_manifest.get("tokenizer", {})
-        tokenizer_enc = tok_info.get("encoding") or tok_info.get("encoding_name")
-        eot_id = tok_info.get("eot_token_id")
+    extracted = extract_dataset_provenance(dataset_manifest)
+    revision = extracted["revision"]
+    train_toks = extracted["train_tokens"]
+    val_toks = extracted["validation_tokens"]
+    tokenizer_enc = extracted["tokenizer_encoding"]
+    eot_id = extracted["eot_token_id"]
+    dataset_repo = extracted["repository"]
+    dataset_cfg = extracted["config"]
 
     # 4. run.json
     created_time = datetime.now(timezone.utc).isoformat()

@@ -47,7 +47,7 @@ To ensure complete transparency and rigorous engineering standards, `basikGPT` c
 | **Layer Normalization** | Pre-Norm ($\epsilon = 10^{-5}$) | Pre-Norm ($\epsilon = 10^{-5}$) | **Faithful**: Exact Pre-LayerNorm placement |
 | **Base Initialization Std** | $0.02$ | $0.02$ (`initializer_range`) | **GPT-2-compatible modernized init**: Normal with $\sigma = 0.02$ |
 | **Residual Projection Scaling** | $\frac{0.02}{\sqrt{2L}} \approx 0.004082$ | $\frac{0.02}{\sqrt{2L}} \approx 0.004082$ | **GPT-2-compatible modernized init**: Radford et al., 2019 Section 2.3 |
-| **Dropout Policy** | 0.1 uniform | 0.1 uniform (`dropout = 0.1`) | **Faithful**: Uniform dropout across embeddings, attn, residual |
+| **Dropout Policy** | 0.1 uniform | Config default `0.1`; pretraining CLI uses `0.0` | **Split**: architecture default matches GPT-2/HF; training CLI is modernized (see §4) |
 | **Optimizer** | Classic Adam with L2 decay | **AdamW** (Decoupled Weight Decay) | **Modernized**: Loshchilov & Hutter (2017) prevents gradient-scale corruption |
 | **Optimizer $\beta_1, \beta_2$** | $\beta_1 = 0.9, \beta_2 = 0.98$ (or 0.999) | $\beta_1 = 0.9, \beta_2 = 0.95$ | **Modernized**: Industry standard for Transformer stability (GPT-3/nanoGPT) |
 | **Weight Decay** | 0.01 (L2) | 0.1 (Decoupled) | **Modernized**: Applied strictly to 2D matrices; 0.0 for 1D biases/LayerNorms |
@@ -61,7 +61,7 @@ To ensure complete transparency and rigorous engineering standards, `basikGPT` c
 
 ## 3. Parameter Grouping Policy
 
-In `basikGPT`, the optimizer parameter grouping is explicitly configured via [`configure_optimizers`](file:///C:/Users/jmint/.gemini/antigravity/scratch/basikGPT/src/basikgpt/training/optimizer.py):
+In `basikGPT`, the optimizer parameter grouping is explicitly configured via [`configure_optimizers`](../src/basikgpt/training/optimizer.py):
 
 ```python
 # Decay Group (weight_decay = 0.1):
@@ -91,4 +91,6 @@ In the original GPT-2 specification:
 - `attn_pdrop = 0.1` (applied to attention softmax matrix)
 - `resid_pdrop = 0.1` (applied to attention output and MLP output projections)
 
-Because all three rates are identical ($0.1$) during pretraining, `basikGPT` unifies them under a single, cohesive hyperparameter `GPTConfig.dropout = 0.1`. This avoids unnecessary configuration sprawl while maintaining exact behavioral equivalence.
+Because all three rates are identical ($0.1$), `basikGPT` unifies them under a single hyperparameter `GPTConfig.dropout` (default `0.1`). This default preserves GPT-2 / HuggingFace inference and reference-parity behavior.
+
+**Pretraining recipe (modernized):** `scripts/train.py` and `scripts/run_pilot.py` instantiate models with `dropout=0.0`. That is an intentional nanoGPT-style training choice, not a claim that the 2019 GPT-2 run used zero dropout. To train with the original 0.1 rates, pass a `GPTConfig` with `dropout=0.1` instead of the CLI default.

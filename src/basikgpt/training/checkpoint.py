@@ -4,12 +4,20 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 import random
 from typing import Any
+import numpy as np
 import torch
 import torch.nn as nn
 from basikgpt.config import GPTConfig
 from basikgpt.training.config import TrainingConfig
 
 CHECKPOINT_SCHEMA_VERSION = 1
+
+
+def _rng_state_to_cpu(state: Any) -> Any:
+    """Moves a PyTorch RNG state tensor back to CPU after `torch.load(map_location=device)`."""
+    if torch.is_tensor(state):
+        return state.detach().cpu()
+    return state
 
 
 def save_checkpoint(
@@ -51,6 +59,7 @@ def save_checkpoint(
 
     rng_states = {
         "python": random.getstate(),
+        "numpy": np.random.get_state(),
         "torch_cpu": torch.get_rng_state(),
         "torch_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
     }
@@ -168,12 +177,18 @@ def load_checkpoint(
 
     if restore_rng and "rng_states" in payload:
         rng = payload["rng_states"]
-        if "python" in rng and rng["python"] is not None:
+        if rng.get("python") is not None:
             random.setstate(rng["python"])
-        if "torch_cpu" in rng and rng["torch_cpu"] is not None:
-            torch.set_rng_state(rng["torch_cpu"])
-        if torch.cuda.is_available() and "torch_cuda" in rng and rng["torch_cuda"] is not None:
-            torch.cuda.set_rng_state_all(rng["torch_cuda"])
+        if rng.get("numpy") is not None:
+            np.random.set_state(rng["numpy"])
+        if rng.get("torch_cpu") is not None:
+            torch.set_rng_state(_rng_state_to_cpu(rng["torch_cpu"]))
+        if torch.cuda.is_available() and rng.get("torch_cuda") is not None:
+            cuda_states = rng["torch_cuda"]
+            if isinstance(cuda_states, (list, tuple)):
+                torch.cuda.set_rng_state_all([_rng_state_to_cpu(s) for s in cuda_states])
+            else:
+                torch.cuda.set_rng_state(_rng_state_to_cpu(cuda_states))
 
     # Ensure weight tying identity remains intact if present
     if hasattr(model, "lm_head") and hasattr(model, "wte"):

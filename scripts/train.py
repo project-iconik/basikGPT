@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 import sys
+import torch
 from torch.utils.data import DataLoader
 
 # Add src to pythonpath
@@ -16,7 +17,7 @@ from basikgpt.model.gpt import GPT
 from basikgpt.training.accounting import calculate_training_steps
 from basikgpt.training.compatibility import validate_dataset_model_compatibility
 from basikgpt.training.config import TrainingConfig
-from basikgpt.training.metadata import load_json
+from basikgpt.training.metadata import extract_dataset_provenance, load_json
 from basikgpt.training.trainer import Trainer
 
 
@@ -129,9 +130,15 @@ def main() -> None:
 
     # 2. Configure Model
     if args.model_preset == "tiny":
+        tiny_context = min(args.context_length, 64)
+        if args.context_length > 64:
+            print(
+                f"[train] Warning: tiny preset caps context_length at 64 "
+                f"(requested {args.context_length}). Using context_length={tiny_context}."
+            )
         model_cfg = GPTConfig(
             vocab_size=50257,
-            context_length=min(args.context_length, 64),
+            context_length=tiny_context,
             n_layers=2,
             n_heads=4,
             d_model=64,
@@ -168,7 +175,13 @@ def main() -> None:
     if len(train_dataset) == 0:
         raise ValueError(f"Training dataset is empty in {data_path} for context_length={model_cfg.context_length}")
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=True,
+        generator=torch.Generator().manual_seed(args.seed),
+    )
 
     val_loader = None
     if val_shards:
@@ -215,7 +228,7 @@ def main() -> None:
     tokens_per_step = args.batch_size * model_cfg.context_length * args.grad_accum_steps
 
     print("=" * 75)
-    print("  basikGPT Milestone 13: Pretraining Engine & Pilot Protocol")
+    print("  basikGPT Milestone 7: Pretraining Engine")
     print("=" * 75)
     print(f"  Run Name:           {run_name}")
     print(f"  Output Directory:   {out_dir}")
@@ -238,8 +251,10 @@ def main() -> None:
     if val_loader:
         print(f"  Val Dataset:        {len(val_shards)} shard(s), {val_dataset.total_tokens:,} tokens ({len(val_dataset):,} samples)")
     if dataset_manifest:
-        rev = dataset_manifest.get("provenance", {}).get("dataset_revision", "unknown")
-        print(f"  Dataset Revision:   {rev[:16]}...")
+        rev = extract_dataset_provenance(dataset_manifest).get("revision") or "unknown"
+        rev_display = str(rev)
+        suffix = "..." if len(rev_display) > 16 else ""
+        print(f"  Dataset Revision:   {rev_display[:16]}{suffix}")
     print("=" * 75 + "\n")
 
     # 6. Run Training

@@ -63,9 +63,9 @@ Pilot runs enforce fail-fast guardrails to abort immediately on numerical diverg
 1. **Finite Loss Guardrail**:
    If $\text{loss} \in \{\text{NaN}, +\infty, -\infty\}$ is encountered during training or evaluation, `FloatingPointError` is raised immediately.
 2. **Finite Gradient Guardrail**:
-   If the total unscaled gradient norm $\|\mathbf{g}\|_2 \in \{\text{NaN}, +\infty\}$ after `clip_grad_norm_`, `FloatingPointError` is raised immediately.
-3. **Pre-Clipping Total Gradient Norm**:
-   Gradient norms recorded in `metrics.jsonl` represent the true pre-clipping total Euclidean norm $\|\mathbf{g}\|_2 = \sqrt{\sum_i \|\mathbf{g}_i\|_2^2}$.
+   After unscaling (FP16) and before or during clipping, the total Euclidean gradient norm $\|\mathbf{g}\|_2$ is measured. If $\|\mathbf{g}\|_2 \in \{\text{NaN}, +\infty\}$, `FloatingPointError` is raised immediately. This check applies to FP32, BF16, and FP16 (`GradScaler`) paths.
+3. **Logged Gradient Norm**:
+   Gradient norms recorded in `metrics.jsonl` are the true pre-clipping total Euclidean norm $\|\mathbf{g}\|_2 = \sqrt{\sum_i \|\mathbf{g}_i\|_2^2}$, including when `max_grad_norm` is `None` (no clipping). They are never reported as `0.0` merely because clipping is disabled.
 4. **Learning Rate Alignment**:
    Scheduler advances strictly once per global optimizer step (after all $G$ micro-batches), maintaining exact warmup and cosine decay boundaries.
 
@@ -78,11 +78,12 @@ Pilot runs enforce fail-fast guardrails to abort immediately on numerical diverg
 - Optimizer first ($m_t$) and second ($v_t$) momentum buffers and step counters.
 - Mixed precision GradScaler state (if FP16).
 - Global optimizer step (`global_step`) and cumulative `tokens_seen`.
-- Python `random`, PyTorch CPU, and PyTorch CUDA RNG state vectors.
+- Python `random`, NumPy, PyTorch CPU, and PyTorch CUDA RNG state vectors. PyTorch RNG tensors are restored on CPU even when the checkpoint is mapped onto a CUDA device.
 
 ### 5.2. Data Stream Continuity Classification
 - **Classification**: *"State-continuous (model, optimizer, scheduler, RNG restored), but dataset iterator resets to shard start if not fast-forwarded."*
-- `DataLoader` streams initialize from the beginning of shard files upon resumption. In full-scale distributed pretraining, shard offset tracking or deterministic index positioning is used.
+- `DataLoader` streams initialize from the beginning of shard files upon resumption. Shuffle order at epoch start is seeded via `torch.Generator`, but the exact in-epoch batch offset is not restored. In full-scale distributed pretraining, shard offset tracking or deterministic index positioning is used.
+- On resume, `metrics.jsonl` records with `step` greater than the restored `global_step` are dropped so later appends do not duplicate steps.
 
 ---
 
@@ -103,16 +104,16 @@ Analytical planning for GPT-2 Small ($124\text{M parameters}$, context $T=1,024$
 
 Before transitioning to GPU qualification and main pretraining:
 
-### 7.1. Validated on Local CPU (Milestone 13)
+### 7.1. Validated on Local CPU (Milestone 8)
 - [x] **Analytical Token Accounting**: Exact $B \times T \times G \times W$ step and token calculations.
 - [x] **LR Scheduler Alignment**: Warmup and cosine decay synchronized strictly with optimizer steps.
-- [x] **Finite Loss & Gradient Guardrails**: Fail-fast on NaN/Inf with `FloatingPointError`.
+- [x] **Finite Loss & Gradient Guardrails**: Fail-fast on NaN/Inf with `FloatingPointError` on FP32/BF16/FP16 paths.
 - [x] **Validation Isolation**: Validation tokens strictly excluded from `tokens_seen`.
-- [x] **Checkpoint Serialization**: Atomic save/load of model, optimizer, scheduler, and RNG states.
-- [x] **Resume Continuity**: Verifiable state resumption without step regression.
+- [x] **Checkpoint Serialization**: Atomic save/load of model, optimizer, scaler, and RNG states.
+- [x] **Resume Continuity**: Verifiable state resumption without step regression (DataLoader shuffle position is not restored; see §5.2).
 - [x] **Structured Summary Logging**: Complete machine-readable `pilot_summary.json` output.
 
-### 7.2. GPU Qualification Required (Upcoming Milestone 14)
+### 7.2. GPU Qualification Required (Milestone 9)
 - [ ] **CUDA Device Execution**: `NOT VALIDATED` (requires NVIDIA GPU environment).
 - [ ] **BF16 Mixed Precision Stability**: `NOT VALIDATED` (Ampere+ native hardware required).
 - [ ] **PyTorch SDPA Hardware Kernels**: `NOT VALIDATED` (FlashAttention-2 / Cutlass).

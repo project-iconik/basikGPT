@@ -58,3 +58,38 @@ def test_checkpoint_round_trip(tmp_path: Path) -> None:
 
     # Weight tying preserved
     assert model2.lm_head.weight is model2.wte.weight
+
+
+def test_checkpoint_restores_numpy_rng_and_keeps_cpu_state(tmp_path: Path) -> None:
+    """Verifies numpy RNG is serialized and torch CPU RNG stays on CPU after load."""
+    import numpy as np
+
+    cfg = GPTConfig(vocab_size=64, context_length=8, n_layers=1, n_heads=2, d_model=16, d_ff=32)
+    model = GPT(cfg)
+    train_cfg = TrainingConfig(learning_rate=1e-3)
+    optimizer = configure_optimizers(model, train_cfg)
+
+    np.random.seed(7)
+    ckpt_file = tmp_path / "rng.pt"
+    save_checkpoint(
+        checkpoint_path=ckpt_file,
+        model=model,
+        optimizer=optimizer,
+        global_step=1,
+        tokens_seen=8,
+        training_config=train_cfg,
+        model_config=cfg,
+    )
+    expected = np.random.rand()
+
+    payload = torch.load(ckpt_file, map_location="cpu", weights_only=False)
+    assert payload["rng_states"]["numpy"] is not None
+    assert torch.is_tensor(payload["rng_states"]["torch_cpu"])
+    assert payload["rng_states"]["torch_cpu"].device.type == "cpu"
+
+    np.random.seed(0)
+    model2 = GPT(cfg)
+    optimizer2 = configure_optimizers(model2, train_cfg)
+    load_checkpoint(ckpt_file, model2, optimizer2, restore_rng=True)
+    got = np.random.rand()
+    assert got == expected

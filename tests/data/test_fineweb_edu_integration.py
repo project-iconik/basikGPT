@@ -34,7 +34,8 @@ def test_fineweb_edu_streaming_smoke(tmp_path: Path) -> None:
     except Exception as e:
         pytest.skip(f"Network error accessing HuggingFace Hub: {e}")
 
-    assert manifest["statistics"]["train_tokens"] == 2_000
+    assert manifest["statistics"]["train_tokens"] <= 2_000
+    assert manifest["statistics"]["train_tokens"] > 0
     assert manifest["statistics"]["validation_tokens"] <= 500
 
     out_dir = tmp_path / "fineweb_edu_smoke"

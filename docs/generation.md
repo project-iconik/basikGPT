@@ -47,7 +47,7 @@ Therefore, only `logits[:, -1, :]` is extracted and forwarded to token sampling.
 
 ---
 
-## 2. Key-Value (KV) Caching Fast Decoding (Milestone 10)
+## 2. Key-Value (KV) Caching Fast Decoding
 
 In naive autoregressive decoding, generating $N$ tokens requires re-evaluating the accumulating prefix at every step, causing $O(N^2)$ cumulative linear projections and self-attention operations.
 

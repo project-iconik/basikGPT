@@ -5,9 +5,7 @@ import json
 from pathlib import Path
 import sys
 from typing import Any
-import datasets
 import numpy as np
-import tiktoken
 
 import basikgpt
 
@@ -56,6 +54,7 @@ def create_manifest(
             "train_documents": stats.get("train_documents", 0),
             "validation_documents": stats.get("validation_documents", 0),
             "skipped_documents": stats.get("skipped_documents", 0),
+            "skipped_for_budget": stats.get("skipped_for_budget", 0),
             "train_tokens": stats.get("train_tokens", 0),
             "validation_tokens": stats.get("validation_tokens", 0),
             "train_shards": len([s for s in shards if s.get("split") == "train"]),
@@ -64,14 +63,23 @@ def create_manifest(
         "shards": shards,
         "environment": {
             "python": sys.version.split()[0],
-            "tiktoken": getattr(tiktoken, "__version__", "unknown"),
-            "datasets": getattr(datasets, "__version__", "unknown"),
+            "tiktoken": _optional_package_version("tiktoken"),
+            "datasets": _optional_package_version("datasets"),
             "numpy": getattr(np, "__version__", "unknown"),
             "basikgpt": getattr(basikgpt, "__version__", "0.1.0"),
         },
         "creation_timestamp": datetime.now(timezone.utc).isoformat(),
     }
     return manifest
+
+
+def _optional_package_version(module_name: str) -> str:
+    """Returns an installed package version, or 'unknown' if the package is absent."""
+    try:
+        module = __import__(module_name)
+    except ImportError:
+        return "unknown"
+    return getattr(module, "__version__", "unknown")
 
 
 def save_manifest(manifest: dict[str, Any], output_path: Path) -> None:

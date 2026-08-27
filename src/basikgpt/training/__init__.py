@@ -12,6 +12,7 @@ from basikgpt.training.loss import compute_cross_entropy_loss
 from basikgpt.training.metadata import (
     RUN_FORMAT_VERSION,
     atomic_save_json,
+    extract_dataset_provenance,
     load_json,
     save_run_metadata,
     save_run_summary,
@@ -42,6 +43,7 @@ __all__ = [
     "get_system_metadata",
     "atomic_save_json",
     "load_json",
+    "extract_dataset_provenance",
     "save_run_metadata",
     "save_run_summary",
     "RUN_FORMAT_VERSION",

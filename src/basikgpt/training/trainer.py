@@ -112,6 +112,7 @@ class Trainer:
         self.global_step = 0
         self.tokens_seen = 0
         self.best_val_loss: float | None = None
+        self.last_val_loss: float | None = None
 
         # 4. Save Initial Run Provenance Metadata
         if hasattr(self.model, "config") and self.resume_from is None:
@@ -210,37 +211,26 @@ class Trainer:
             step_loss += loss.item() / accum_steps
             step_tokens += y.numel()
 
-        # Gradient clipping and optimizer step
+        # Unscale FP16 grads before measuring/clipping so the reported norm is in parameter space.
         if self.scaler is not None:
-            if self.config.max_grad_norm is not None:
-                self.scaler.unscale_(self.optimizer)
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.max_grad_norm,
-                ).item()
-            else:
-                grad_norm = 0.0
+            self.scaler.unscale_(self.optimizer)
 
-            lr = get_learning_rate_at_step(self.global_step, self.config)
-            update_learning_rate(self.optimizer, lr)
+        # clip_grad_norm_ returns the pre-clipping Euclidean norm. max_norm=inf measures without clipping.
+        clip_max = self.config.max_grad_norm if self.config.max_grad_norm is not None else float("inf")
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), clip_max).item()
 
+        if not math.isfinite(grad_norm):
+            raise FloatingPointError(
+                f"Non-finite gradient norm at global step {self.global_step}: {grad_norm}"
+            )
+
+        lr = get_learning_rate_at_step(self.global_step, self.config)
+        update_learning_rate(self.optimizer, lr)
+
+        if self.scaler is not None:
             self.scaler.step(self.optimizer)
             self.scaler.update()
         else:
-            if self.config.max_grad_norm is not None:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.max_grad_norm,
-                ).item()
-            else:
-                grad_norm = 0.0
-
-            if not math.isfinite(grad_norm):
-                raise FloatingPointError(f"Non-finite gradient norm at global step {self.global_step}: {grad_norm}")
-
-            lr = get_learning_rate_at_step(self.global_step, self.config)
-            update_learning_rate(self.optimizer, lr)
-
             self.optimizer.step()
 
         self.tokens_seen += step_tokens
@@ -268,6 +258,7 @@ class Trainer:
             )
             self.global_step = meta.get("global_step", 0)
             self.tokens_seen = meta.get("tokens_seen", 0)
+            self._prune_metrics_after_resume(self.global_step)
             print(f"[Trainer] Resumed from {target_resume} at step {self.global_step}, tokens {self.tokens_seen:,}")
 
         data_iter = self._infinite_loader(self.train_loader)
@@ -303,20 +294,26 @@ class Trainer:
                 step_metrics = self.train_step(data_iter)
                 last_train_loss = step_metrics["loss"]
 
-                # Evaluation
-                val_loss = None
-                if self.val_loader is not None and (
+                should_eval = self.val_loader is not None and (
                     self.global_step % self.config.eval_interval == 0
                     or self.global_step == self.config.max_steps
-                ):
-                    val_loss = self.evaluate()
-                    last_val_loss = val_loss
-
-                # Periodic Checkpoint
-                if (
+                )
+                should_log = (
+                    self.global_step % self.config.log_interval == 0
+                    or self.global_step == self.config.max_steps
+                )
+                should_ckpt = (
                     self.global_step % self.config.checkpoint_interval == 0
                     or self.global_step == self.config.max_steps
-                ):
+                )
+
+                val_loss = None
+                if should_eval:
+                    val_loss = self.evaluate()
+                    last_val_loss = val_loss
+                    self.last_val_loss = val_loss
+
+                if should_ckpt:
                     ckpt_path = self.output_dir / f"step-{self.global_step:08d}.pt"
                     save_checkpoint(
                         checkpoint_path=ckpt_path,
@@ -329,11 +326,9 @@ class Trainer:
                         scaler=self.scaler,
                     )
 
-                # Logging
-                if (
-                    self.global_step % self.config.log_interval == 0
-                    or self.global_step == self.config.max_steps
-                ):
+                elapsed_total = time.perf_counter() - start_time
+
+                if should_log:
                     if self.device.type == "cuda":
                         torch.cuda.synchronize(self.device)
 
@@ -349,7 +344,6 @@ class Trainer:
                         else None
                     )
 
-                    # Structured Training Record
                     train_record = {
                         "type": "train",
                         "step": self.global_step,
@@ -365,19 +359,7 @@ class Trainer:
                         train_record["peak_vram_mb"] = peak_vram_mb
 
                     history.append(train_record)
-
-                    with open(self.metrics_file, "a", encoding="utf-8") as f:
-                        f.write(json.dumps(train_record) + "\n")
-                        if val_loss is not None:
-                            val_record = {
-                                "type": "val",
-                                "step": self.global_step,
-                                "tokens_seen": self.tokens_seen,
-                                "val_loss": val_loss,
-                                "elapsed_seconds": elapsed_total,
-                            }
-                            f.write(json.dumps(val_record) + "\n")
-                        f.flush()
+                    self._append_metrics_record(train_record)
 
                     val_str = f" | Val: {val_loss:.4f}" if val_loss is not None else ""
                     vram_str = f" | VRAM: {peak_vram_mb:.0f}MB" if peak_vram_mb is not None else ""
@@ -392,6 +374,21 @@ class Trainer:
 
                     last_log_time = now
                     last_tokens_seen = self.tokens_seen
+                elif should_eval and val_loss is not None:
+                    print(
+                        f"Step {self.global_step:06d}/{self.config.max_steps:06d} | "
+                        f"Val: {val_loss:.4f}"
+                    )
+
+                if val_loss is not None:
+                    val_record = {
+                        "type": "val",
+                        "step": self.global_step,
+                        "tokens_seen": self.tokens_seen,
+                        "val_loss": val_loss,
+                        "elapsed_seconds": elapsed_total,
+                    }
+                    self._append_metrics_record(val_record)
 
             # Final checkpoint & completed summary
             final_ckpt = self.output_dir / "step-final.pt"
@@ -461,3 +458,32 @@ class Trainer:
                 error_message=str(exc),
             )
             raise
+
+    def _append_metrics_record(self, record: dict[str, Any]) -> None:
+        """Appends one JSONL metrics record and flushes immediately."""
+        with open(self.metrics_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+            f.flush()
+
+    def _prune_metrics_after_resume(self, resume_step: int) -> None:
+        """Drops metrics.jsonl records after `resume_step` so resumed runs do not duplicate steps."""
+        if not self.metrics_file.exists():
+            return
+
+        kept: list[str] = []
+        with open(self.metrics_file, encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    record = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                step = record.get("step")
+                if step is None or step <= resume_step:
+                    kept.append(json.dumps(record))
+
+        with open(self.metrics_file, "w", encoding="utf-8") as f:
+            for serialized in kept:
+                f.write(serialized + "\n")

@@ -102,3 +102,49 @@ def test_train_loss_logged_is_unscaled(tmp_path: Path) -> None:
     # Theoretical cross-entropy on uniform random 32 tokens is ~ -ln(1/32) = 3.465
     # If loss were scaled by 1/4, it would be ~ 0.866.
     assert logged_loss > 2.0, f"Expected unscaled cross entropy (~3.46), got {logged_loss:.4f} (looks mistakenly scaled)"
+
+
+def test_val_metrics_logged_when_eval_not_aligned_with_log(tmp_path: Path) -> None:
+    """Verifies val records are written on every eval step even if it is not a log step."""
+    vocab_size, context_length = 32, 8
+    torch.manual_seed(42)
+    raw = torch.randint(0, vocab_size, (8, context_length + 1), dtype=torch.long)
+    train_ds = TensorDataset(raw[:, :-1], raw[:, 1:])
+    val_ds = TensorDataset(raw[:2, :-1], raw[:2, 1:])
+
+    cfg = GPTConfig(vocab_size=vocab_size, context_length=context_length, n_layers=1, n_heads=2, d_model=16, d_ff=64)
+    model = GPT(cfg)
+
+    train_cfg = TrainingConfig(
+        learning_rate=1e-3,
+        warmup_steps=0,
+        max_steps=6,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        eval_interval=2,
+        eval_batches=1,
+        log_interval=3,
+        checkpoint_interval=100,
+        output_dir=str(tmp_path),
+    )
+
+    trainer = Trainer(
+        model,
+        train_cfg,
+        DataLoader(train_ds, batch_size=2),
+        DataLoader(val_ds, batch_size=2),
+        overwrite=True,
+    )
+    trainer.train()
+
+    records = []
+    with open(tmp_path / "metrics.jsonl", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                records.append(json.loads(line))
+
+    val_steps = {r["step"] for r in records if r["type"] == "val"}
+    assert val_steps == {2, 4, 6}
+
+    train_steps = {r["step"] for r in records if r["type"] == "train"}
+    assert train_steps == {3, 6}

@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import time
+from typing import Literal
 import torch
 from torch.utils.data import DataLoader
 
@@ -128,7 +129,13 @@ def run_pilot(args: argparse.Namespace) -> PilotSummary:
         raise FileNotFoundError(f"No train shards found in {data_path}")
 
     train_dataset = ShardedTokenDataset(train_shards, context_length=model_cfg.context_length)
-    train_loader = DataLoader(train_dataset, batch_size=stage_spec.batch_size, shuffle=True, drop_last=True)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=stage_spec.batch_size,
+        shuffle=True,
+        drop_last=True,
+        generator=torch.Generator().manual_seed(args.seed),
+    )
 
     val_loader = None
     if val_shards:
@@ -199,7 +206,7 @@ def run_pilot(args: argparse.Namespace) -> PilotSummary:
         optimizer_steps=trainer.global_step,
         initial_train_loss=train_losses[0] if train_losses else None,
         final_train_loss=train_losses[-1] if train_losses else None,
-        final_validation_loss=trainer.best_val_loss,
+        final_validation_loss=trainer.last_val_loss,
         best_validation_loss=trainer.best_val_loss,
         min_gradient_norm=min(grad_norms) if grad_norms else None,
         max_gradient_norm=max(grad_norms) if grad_norms else None,

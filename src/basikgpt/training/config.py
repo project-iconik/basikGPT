@@ -39,7 +39,7 @@ class TrainingConfig:
 
     # Runtime Environment & Precision
     device: str = "auto"
-    precision: str = "fp32"  # "fp32", "bf16", "fp16"
+    precision: Precision = "fp32"
     output_dir: str = "runs/baseline"
     seed: int = 1337
 

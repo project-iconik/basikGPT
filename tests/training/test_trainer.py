@@ -2,6 +2,7 @@
 
 import math
 from pathlib import Path
+import json
 import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -195,3 +196,87 @@ def test_resume_continuation(tmp_path: Path) -> None:
     # Model A and Model C should have identical weights after 2 steps
     for (nA, pA), (nC, pC) in zip(modelA.named_parameters(), modelC.named_parameters()):
         torch.testing.assert_close(pA, pC, rtol=1e-5, atol=1e-5, msg=f"Resume divergence at parameter {nA}")
+
+
+def test_grad_norm_reported_when_clipping_disabled(tmp_path: Path) -> None:
+    """Verifies logged grad_norm is the true Euclidean norm when max_grad_norm is None."""
+    model, train_ds, _ = make_tiny_model_and_data(vocab_size=32, context_length=8, num_samples=4)
+    train_cfg = TrainingConfig(
+        learning_rate=1e-3,
+        warmup_steps=0,
+        max_steps=1,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        max_grad_norm=None,
+        log_interval=1,
+        eval_interval=100,
+        checkpoint_interval=100,
+        output_dir=str(tmp_path),
+    )
+    trainer = Trainer(model, train_cfg, DataLoader(train_ds, batch_size=2), overwrite=True)
+    history = trainer.train()
+    assert history[0]["grad_norm"] > 0.0
+    assert math.isfinite(history[0]["grad_norm"])
+
+
+def test_resume_prunes_metrics_after_checkpoint_step(tmp_path: Path) -> None:
+    """Verifies resumed runs drop metrics.jsonl records after the restored step."""
+    vocab_size, context_length = 32, 8
+    torch.manual_seed(0)
+    raw = torch.randint(0, vocab_size, (4, context_length + 1), dtype=torch.long)
+    ds = TensorDataset(raw[:, :-1], raw[:, 1:])
+    cfg = GPTConfig(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        n_layers=1,
+        n_heads=2,
+        d_model=16,
+        d_ff=64,
+        dropout=0.0,
+    )
+
+    out_dir = tmp_path / "run"
+    model = GPT(cfg)
+    train_cfg = TrainingConfig(
+        learning_rate=1e-3,
+        warmup_steps=0,
+        max_steps=4,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        log_interval=1,
+        eval_interval=100,
+        checkpoint_interval=2,
+        output_dir=str(out_dir),
+    )
+    Trainer(model, train_cfg, DataLoader(ds, batch_size=2, shuffle=False), overwrite=True).train()
+
+    ckpt_path = out_dir / "step-00000002.pt"
+    assert ckpt_path.exists()
+
+    model2 = GPT(cfg)
+    train_cfg2 = TrainingConfig(
+        learning_rate=1e-3,
+        warmup_steps=0,
+        max_steps=4,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        log_interval=1,
+        eval_interval=100,
+        checkpoint_interval=2,
+        output_dir=str(out_dir),
+    )
+    Trainer(
+        model2,
+        train_cfg2,
+        DataLoader(ds, batch_size=2, shuffle=False),
+        resume_from=ckpt_path,
+    ).train()
+
+    steps = []
+    with open(out_dir / "metrics.jsonl", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                record = json.loads(line)
+                if record["type"] == "train":
+                    steps.append(record["step"])
+    assert steps == [1, 2, 3, 4]

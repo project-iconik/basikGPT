@@ -6,7 +6,7 @@
 
 ---
 
-## 🎯 Engineering Philosophy & Priorities
+## Engineering Philosophy & Priorities
 
 In every line of code, we enforce the following hierarchy:
 
@@ -19,7 +19,7 @@ $$\text{Correctness} > \text{Readability} > \text{Verifiability} > \text{Reprodu
 
 ---
 
-## 🏛️ GPT-2 Small Canonical Architecture
+## GPT-2 Small Canonical Architecture
 
 The canonical architecture accurately reproduces the 124M-parameter GPT-2 Small configuration:
 
@@ -40,52 +40,70 @@ The canonical architecture accurately reproduces the 124M-parameter GPT-2 Small 
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```text
 basikGPT/
-├── pyproject.toml              # Build system, dependencies, and test configuration
-├── LICENSE                     # Apache-2.0 License
-├── README.md                   # Project overview & quickstart
-├── AGENTS.md                   # AI agent master guidelines and invariant specifications
+├── pyproject.toml                  # Build system, dependencies, and test configuration
+├── LICENSE                         # Apache-2.0 License
+├── README.md                       # Project overview & quickstart
+├── AGENTS.md                       # AI agent master guidelines and invariant specifications
 │
-├── src/
-│   └── basikgpt/
-│       ├── __init__.py         # Package root exporting core classes and version
-│       └── config.py           # GPTConfig dataclass with strict validation & presets
+├── src/basikgpt/
+│   ├── config.py                   # GPTConfig dataclass, validation, and size presets
+│   ├── model/                      # Attention, MLP, Block, full GPT assembly
+│   ├── conversion/                 # HuggingFace GPT-2 checkpoint conversion
+│   ├── data/                       # Tokenizer, sharding, FineWeb-Edu pipeline
+│   ├── training/                   # Optimizer, scheduler, Trainer, checkpoints
+│   ├── generation/                 # Sampling and KV-cache decoding
+│   └── evaluation/                 # Validation loss / perplexity and HellaSwag
 │
-├── docs/
-│   └── tensor_conventions.md   # Tensor shape conventions and notation guide
-│
-└── tests/
-    ├── __init__.py
-    └── test_config.py          # Unit tests for GPTConfig and presets
+├── scripts/                        # CLI entrypoints (train, generate, evaluate, parity)
+├── tests/                          # Unit and integration tests
+└── docs/                           # Tensor conventions, recipe audit, pilot protocol
 ```
 
 ---
 
-## 🚀 Quickstart & Development
+## Quickstart & Development
 
 ### 1. Installation
 
-Requires Python $\ge 3.12$ and PyTorch $\ge 2.0.0$.
+Requires Python $\ge 3.12$ and PyTorch $\ge 2.1.0$.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/basikGPT.git
+git clone https://github.com/project-iconik/basikGPT.git
 cd basikGPT
 
 # Install in editable mode with development dependencies
 pip install -e ".[dev]"
 ```
 
-### 2. Running Unit Tests
+Core model and training code depend only on `torch` and `numpy`. Tokenization and FineWeb download extras (`tiktoken`, `datasets`) are installed via `.[data]` or `.[dev]`.
+
+### 2. Prepare Smoke Data
+
+Token shards and `runs/` artifacts are gitignored. A fresh clone does **not** include `data/fineweb-edu-smoke`, so `scripts/train.py` will fail until shards exist.
+
+```bash
+# Small FineWeb-Edu smoke set (train/val uint16 shards + manifest.json)
+python scripts/prepare_fineweb_edu.py --output-dir data/fineweb-edu-smoke
+```
+
+### 3. Running Unit Tests
 
 ```bash
 pytest
 ```
 
-### 3. Basic Configuration Usage
+### 4. Train a Tiny CPU Smoke Run
+
+```bash
+python scripts/train.py --model-preset tiny --max-steps 20 --device cpu
+```
+
+### 5. Basic Configuration Usage
 
 ```python
 from basikgpt import GPTConfig
@@ -100,29 +118,35 @@ print(f"Analytical parameter count (tied): {config.num_total_parameters():,}")
 # Output: Analytical parameter count (tied): 124,439,808
 ```
 
+`GPTConfig.dropout` defaults to `0.1` to match GPT-2 / HuggingFace. Pretraining CLIs (`scripts/train.py`, `scripts/run_pilot.py`) set `dropout=0.0` as a modernized training recipe.
+
 ---
 
-## 🗺️ Milestone Roadmap
+## Milestone Roadmap
+
+Status is tracked against the canonical numbering in `AGENTS.md`.
 
 - [x] **Milestone 0**: Repository Foundation (Packaging, `GPTConfig`, validation, tests, docs)
-- [ ] **Milestone 1**: Eager Causal Self-Attention (pure PyTorch tensor ops)
-- [ ] **Milestone 2**: SDPA Backend & Numerical Parity Tests
-- [ ] **Milestone 3**: GPT-2 Components (MLP, Block, LayerNorm, Embeddings)
-- [ ] **Milestone 4**: Complete GPT-2 Small Assembly & Verification
-- [ ] **Milestone 5**: Reference GPT-2 Checkpoint Parity (Logits Match)
-- [ ] **Milestone 6**: English FineWeb Streaming & Token Pipeline
-- [ ] **Milestone 7**: Pretraining Engine (AdamW, Cosine Warmup, BF16)
-- [ ] **Milestone 8**: Training Validation (1M $\to$ 10M $\to$ 100M $\to$ 500M tokens)
-- [ ] **Milestone 9**: Performance Benchmarking & Engineering
+- [x] **Milestone 1**: Eager Causal Self-Attention (pure PyTorch tensor ops)
+- [x] **Milestone 2**: SDPA Backend & Numerical Parity Tests
+- [x] **Milestone 3**: GPT-2 Components (MLP, Block, LayerNorm, Embeddings)
+- [x] **Milestone 4**: Complete GPT-2 Small Assembly & Verification
+- [x] **Milestone 5**: Reference GPT-2 Checkpoint Parity (Logits Match)
+- [x] **Milestone 6**: English FineWeb Streaming & Token Pipeline
+- [x] **Milestone 7**: Pretraining Engine (AdamW, Cosine Warmup, BF16)
+- [ ] **Milestone 8**: Training Validation (1M $\to$ 10M $\to$ 100M $\to$ 500M tokens) — *partial: CPU Stage A/B pilots only*
+- [ ] **Milestone 9**: Performance Benchmarking & Engineering — *partial: CPU tiny benchmark only*
 - [ ] **Milestone 10**: Canonical Pretraining (~2.5B FineWeb tokens)
-- [ ] **Milestone 11**: Evaluation & Perplexity Analysis
+- [ ] **Milestone 11**: Evaluation & Perplexity Analysis — *partial: evaluators implemented; trained-model eval pending*
 - [ ] **Milestone 12**: Scaling Experiments
 - [ ] **Milestone 13**: Distributed Training (DDP $\to$ FSDP)
 - [ ] **Milestone 14**: 30B-ready Architectural Validation
 - [ ] **Milestone 15**: Comprehensive Technical Whitepaper
 
+Implemented outside the original numbered roadmap (used by later milestones): autoregressive generation with KV cache, and a HellaSwag zero-shot evaluation engine.
+
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [Apache-2.0 License](LICENSE).

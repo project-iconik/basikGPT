@@ -7,6 +7,7 @@ from basikgpt.training.config import TrainingConfig
 from basikgpt.training.metadata import (
     RUN_FORMAT_VERSION,
     atomic_save_json,
+    extract_dataset_provenance,
     load_json,
     save_run_metadata,
     save_run_summary,
@@ -94,6 +95,34 @@ def test_save_run_metadata_and_summary(tmp_path: Path) -> None:
     assert summary["tokens_seen"] == 12800
     assert summary["final_train_loss"] == 2.45
     assert summary["best_val_loss"] == 2.38
+
+
+def test_extract_dataset_provenance_canonical_and_legacy_schemas() -> None:
+    """Verifies provenance helper reads canonical manifest keys and legacy aliases."""
+    canonical = {
+        "dataset_provenance": {
+            "repository": "HuggingFaceFW/fineweb-edu",
+            "config": "sample-10BT",
+            "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+        },
+        "statistics": {"train_tokens": 50000, "validation_tokens": 5000},
+        "tokenizer": {"encoding": "gpt2", "eot_token_id": 50256},
+    }
+    extracted = extract_dataset_provenance(canonical)
+    assert extracted["revision"] == "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
+    assert extracted["repository"] == "HuggingFaceFW/fineweb-edu"
+    assert extracted["config"] == "sample-10BT"
+    assert extracted["train_tokens"] == 50000
+    assert extracted["tokenizer_encoding"] == "gpt2"
+
+    legacy = {
+        "provenance": {"dataset_revision": "legacy-rev", "dataset_repository": "legacy-repo"},
+        "token_statistics": {"train_tokens": 10, "validation_tokens": 1},
+    }
+    extracted_legacy = extract_dataset_provenance(legacy)
+    assert extracted_legacy["revision"] == "legacy-rev"
+    assert extracted_legacy["repository"] == "legacy-repo"
+    assert extracted_legacy["train_tokens"] == 10
 
 
 def test_git_and_system_metadata_helpers() -> None:
