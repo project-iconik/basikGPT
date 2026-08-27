@@ -13,6 +13,7 @@ sys.path.insert(0, str(repo_root / "src"))
 from basikgpt.config import GPTConfig
 from basikgpt.data.shard import ShardedTokenDataset
 from basikgpt.model.gpt import GPT
+from basikgpt.training.accounting import calculate_training_steps
 from basikgpt.training.compatibility import validate_dataset_model_compatibility
 from basikgpt.training.config import TrainingConfig
 from basikgpt.training.metadata import load_json
@@ -80,6 +81,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=4, help="Micro-batch size per forward pass (default: 4)")
     parser.add_argument("--grad-accum-steps", type=int, default=8, help="Gradient accumulation steps (default: 8)")
     parser.add_argument("--max-steps", type=int, default=100, help="Total global optimizer steps (default: 100)")
+    parser.add_argument(
+        "--target-tokens",
+        type=int,
+        default=None,
+        help="Target nominal training token budget. If specified, max_steps is automatically derived via ceiling arithmetic.",
+    )
     parser.add_argument("--warmup-steps", type=int, default=20, help="Linear warmup steps (default: 20)")
     parser.add_argument("--lr", type=float, default=6e-4, help="Peak learning rate (default: 6e-4)")
     parser.add_argument("--min-lr", type=float, default=6e-5, help="Minimum learning rate floor (default: 6e-5)")
@@ -170,7 +177,21 @@ def main() -> None:
             raise ValueError(f"Validation shards exist in {data_path} but 0 samples could be extracted for context_length={model_cfg.context_length}")
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False)
 
-    # 5. Instantiate Model & Config
+    # 5. Calculate Training Steps and Budget
+    plan = None
+    if args.target_tokens is not None:
+        plan = calculate_training_steps(
+            target_tokens=args.target_tokens,
+            micro_batch_size=args.batch_size,
+            context_length=model_cfg.context_length,
+            grad_accum_steps=args.grad_accum_steps,
+            world_size=1,
+        )
+        max_steps = plan.optimizer_steps
+    else:
+        max_steps = args.max_steps
+
+    # 6. Instantiate Model & Config
     model = GPT(model_cfg)
     train_cfg = TrainingConfig(
         learning_rate=args.lr,
@@ -178,7 +199,7 @@ def main() -> None:
         weight_decay=args.weight_decay,
         max_grad_norm=args.max_grad_norm,
         warmup_steps=args.warmup_steps,
-        max_steps=args.max_steps,
+        max_steps=max_steps,
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum_steps,
         eval_interval=args.eval_interval,
@@ -194,7 +215,7 @@ def main() -> None:
     tokens_per_step = args.batch_size * model_cfg.context_length * args.grad_accum_steps
 
     print("=" * 75)
-    print("  basikGPT Milestone 8: Pretraining Engine (Robustness & Reproducibility)")
+    print("  basikGPT Milestone 13: Pretraining Engine & Pilot Protocol")
     print("=" * 75)
     print(f"  Run Name:           {run_name}")
     print(f"  Output Directory:   {out_dir}")
@@ -207,6 +228,12 @@ def main() -> None:
     print(f"  Batch Size (B):     {args.batch_size}")
     print(f"  Grad Accum (G):     {args.grad_accum_steps}")
     print(f"  Tokens / Step:      {tokens_per_step:,} target tokens")
+    if plan is not None:
+        print(f"  Target Budget:      {plan.requested_token_budget:,} requested tokens")
+        print(f"  Actual Budget:      {plan.actual_token_budget:,} tokens ({plan.overshoot_tokens:+,} overshoot)")
+        print(f"  Optimizer Steps:    {plan.optimizer_steps:,} steps")
+    else:
+        print(f"  Optimizer Steps:    {max_steps:,} steps")
     print(f"  Train Dataset:      {len(train_shards)} shard(s), {train_dataset.total_tokens:,} tokens ({len(train_dataset):,} samples)")
     if val_loader:
         print(f"  Val Dataset:        {len(val_shards)} shard(s), {val_dataset.total_tokens:,} tokens ({len(val_dataset):,} samples)")

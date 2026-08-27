@@ -160,8 +160,10 @@ class Trainer:
                     logits = self.model(x)
                     loss = compute_cross_entropy_loss(logits, y)
 
-                if torch.isnan(loss) or torch.isinf(loss):
-                    raise RuntimeError(f"Non-finite loss detected during evaluation at batch {i}: {loss.item()}")
+                if not torch.isfinite(loss):
+                    raise FloatingPointError(
+                        f"Non-finite loss detected during evaluation at batch {i}: {loss.item()}"
+                    )
 
                 total_loss += loss.item()
                 batches_evaluated += 1
@@ -193,7 +195,7 @@ class Trainer:
                 logits = self.model(x)
                 loss = compute_cross_entropy_loss(logits, y)
 
-            if torch.isnan(loss) or torch.isinf(loss):
+            if not torch.isfinite(loss):
                 raise FloatingPointError(
                     f"Non-finite training loss detected at global step {self.global_step}: {loss.item()}"
                 )
@@ -219,7 +221,7 @@ class Trainer:
             else:
                 grad_norm = 0.0
 
-            if math.isnan(grad_norm) or math.isinf(grad_norm):
+            if not math.isfinite(grad_norm):
                 raise FloatingPointError(f"Non-finite gradient norm at global step {self.global_step}: {grad_norm}")
 
             lr = get_learning_rate_at_step(self.global_step, self.config)
@@ -236,7 +238,7 @@ class Trainer:
             else:
                 grad_norm = 0.0
 
-            if math.isnan(grad_norm) or math.isinf(grad_norm):
+            if not math.isfinite(grad_norm):
                 raise FloatingPointError(f"Non-finite gradient norm at global step {self.global_step}: {grad_norm}")
 
             lr = get_learning_rate_at_step(self.global_step, self.config)

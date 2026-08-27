@@ -1,0 +1,125 @@
+"""Analytical token accounting, step calculation, and budget planning for basikGPT pretraining.
+
+Provides exact token arithmetic for micro-batches, gradient accumulation, distributed world size,
+and token-budget-driven optimizer step calculations.
+"""
+
+from dataclasses import asdict, dataclass
+import math
+from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class TokenBudgetPlan:
+    """Analytical specification and step breakdown for a target pretraining token budget.
+
+    Attributes:
+        requested_token_budget: User-requested nominal token count target.
+        micro_batch_size: Number of sequences per forward/backward micro-step (B).
+        context_length: Sequence length in tokens (T).
+        grad_accum_steps: Number of micro-batches accumulated per optimizer step (G).
+        world_size: Number of distributed data-parallel workers (W, default: 1).
+        tokens_per_micro_batch: Total tokens processed in a single micro-batch (B * T).
+        tokens_per_optimizer_step: Total tokens processed across all workers per optimizer step (B * T * G * W).
+        optimizer_steps: Number of global optimizer steps required to reach or exceed target budget.
+        actual_token_budget: Actual total tokens that will be processed across all planned steps.
+        overshoot_tokens: Difference between actual processed tokens and requested budget (actual - requested).
+    """
+
+    requested_token_budget: int
+    micro_batch_size: int
+    context_length: int
+    grad_accum_steps: int
+    world_size: int
+    tokens_per_micro_batch: int
+    tokens_per_optimizer_step: int
+    optimizer_steps: int
+    actual_token_budget: int
+    overshoot_tokens: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serializes budget plan into a dictionary."""
+        return asdict(self)
+
+
+def calculate_training_steps(
+    target_tokens: int,
+    micro_batch_size: int,
+    context_length: int,
+    grad_accum_steps: int,
+    world_size: int = 1,
+) -> TokenBudgetPlan:
+    """Calculates the exact number of global optimizer steps required for a target token budget.
+
+    Token Accounting Formulation:
+        1. Tokens per micro-batch:
+           tokens_per_micro_batch = B * T
+        2. Tokens per optimizer step:
+           tokens_per_optimizer_step = B * T * G * W
+        3. Global optimizer steps (Ceiling Policy):
+           optimizer_steps = ceil(target_tokens / tokens_per_optimizer_step)
+        4. Actual processed token count:
+           actual_token_budget = optimizer_steps * tokens_per_optimizer_step
+        5. Overshoot tokens:
+           overshoot_tokens = actual_token_budget - target_tokens
+
+    Args:
+        target_tokens: Total desired nominal training token budget.
+        micro_batch_size: Micro-batch size per device (B).
+        context_length: Sequence length / block size (T).
+        grad_accum_steps: Gradient accumulation steps (G).
+        world_size: Number of distributed workers (W, default: 1).
+
+    Returns:
+        TokenBudgetPlan instance containing complete step arithmetic and breakdown.
+
+    Raises:
+        ValueError: If any input argument is non-positive (<= 0).
+    """
+    if target_tokens <= 0:
+        raise ValueError(f"target_tokens must be positive, got {target_tokens}")
+    if micro_batch_size <= 0:
+        raise ValueError(f"micro_batch_size must be positive, got {micro_batch_size}")
+    if context_length <= 0:
+        raise ValueError(f"context_length must be positive, got {context_length}")
+    if grad_accum_steps <= 0:
+        raise ValueError(f"grad_accum_steps must be positive, got {grad_accum_steps}")
+    if world_size <= 0:
+        raise ValueError(f"world_size must be positive, got {world_size}")
+
+    tokens_per_micro_batch = micro_batch_size * context_length
+    tokens_per_optimizer_step = tokens_per_micro_batch * grad_accum_steps * world_size
+
+    # Ceiling policy ensures we never terminate below the requested target token budget
+    optimizer_steps = math.ceil(target_tokens / tokens_per_optimizer_step)
+    actual_token_budget = optimizer_steps * tokens_per_optimizer_step
+    overshoot_tokens = actual_token_budget - target_tokens
+
+    return TokenBudgetPlan(
+        requested_token_budget=target_tokens,
+        micro_batch_size=micro_batch_size,
+        context_length=context_length,
+        grad_accum_steps=grad_accum_steps,
+        world_size=world_size,
+        tokens_per_micro_batch=tokens_per_micro_batch,
+        tokens_per_optimizer_step=tokens_per_optimizer_step,
+        optimizer_steps=optimizer_steps,
+        actual_token_budget=actual_token_budget,
+        overshoot_tokens=overshoot_tokens,
+    )
+
+
+def calculate_tokens_seen(
+    optimizer_steps: int,
+    micro_batch_size: int,
+    context_length: int,
+    grad_accum_steps: int,
+    world_size: int = 1,
+) -> int:
+    """Calculates cumulative tokens processed after a given number of optimizer steps."""
+    if optimizer_steps < 0:
+        raise ValueError(f"optimizer_steps must be non-negative, got {optimizer_steps}")
+    if micro_batch_size <= 0 or context_length <= 0 or grad_accum_steps <= 0 or world_size <= 0:
+        raise ValueError("Batching dimensions must all be positive integers.")
+
+    return optimizer_steps * micro_batch_size * context_length * grad_accum_steps * world_size

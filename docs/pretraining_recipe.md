@@ -4,11 +4,33 @@ This document presents a comprehensive audit and comparison between the historic
 
 ---
 
-## 1. Project Framing & Scope
+## 1. Project Framing & Fidelity Classification
 
-**Reproduction Scope Statement**:
-> `basikGPT` is a **GPT-2 architecture reproduction** implemented with a **modern PyTorch pretraining stack** and the **FineWeb-Edu corpus**.
-> It preserves 100% architectural and mathematical equivalence to GPT-2 Small, while adopting industry-standard optimization improvements (such as AdamW, PyTorch SDPA, and decoupled parameter grouping) developed since 2019.
+**Canonical Reproduction Statement**:
+> **`basikGPT` is a GPT-2 architecture reproduction implemented with a modern PyTorch pretraining stack and the FineWeb-Edu corpus.**
+
+To ensure complete transparency and rigorous engineering standards, `basikGPT` classifies reproduction aspects across four explicit tiers:
+
+```text
+1. Architecture Fidelity:
+   Bitwise structural equivalence to GPT-2 Small (12 layers, 12 heads, 768 d_model, 3072 d_ff,
+   Pre-LayerNorm topology, GELU-tanh activation, vocab=50,257, context_length=1,024,
+   and parameter count strictly 124,439,808).
+
+2. Checkpoint Fidelity:
+   Bitwise parity in logit generation and candidate scoring when loading official public
+   reference weights (openai-community/gpt2).
+
+3. Initialization Fidelity:
+   GPT-2-compatible modernized initialization implementing standard normal distributions
+   (std=0.02) and depth-dependent residual projection scaling (std=0.02 / sqrt(2*L)).
+
+4. Training Recipe Modernization:
+   Adoption of modern, proven PyTorch optimization practices (AdamW decoupled weight decay,
+   beta_1=0.9/beta_2=0.95, 2D/1D parameter grouping, PyTorch SDPA, Cosine Decay, FineWeb-Edu).
+```
+
+`basikGPT` does **not** claim byte-for-byte reproduction of the 2019 OpenAI training run (which utilized a closed, unreleased WebText dataset and legacy TensorFlow 1.x runtime).
 
 ---
 
@@ -23,8 +45,8 @@ This document presents a comprehensive audit and comparison between the historic
 | **Weight Tying** | `lm_head.weight` is `wte.weight` | `lm_head.weight` is `wte.weight` | **Faithful**: Exact memory tensor sharing |
 | **Activation Function** | GELU (tanh approx) | GELU (tanh approx, `approximate="tanh"`) | **Faithful**: Exact numerical formulation |
 | **Layer Normalization** | Pre-Norm ($\epsilon = 10^{-5}$) | Pre-Norm ($\epsilon = 10^{-5}$) | **Faithful**: Exact Pre-LayerNorm placement |
-| **Base Initialization Std** | $0.02$ | $0.02$ (`initializer_range`) | **Faithful**: Standard normal with $\sigma = 0.02$ |
-| **Residual Projection Scaling** | $\frac{0.02}{\sqrt{2L}} \approx 0.004082$ | $\frac{0.02}{\sqrt{2L}} \approx 0.004082$ | **Faithful**: Radford et al., 2019 Section 2.3 |
+| **Base Initialization Std** | $0.02$ | $0.02$ (`initializer_range`) | **GPT-2-compatible modernized init**: Normal with $\sigma = 0.02$ |
+| **Residual Projection Scaling** | $\frac{0.02}{\sqrt{2L}} \approx 0.004082$ | $\frac{0.02}{\sqrt{2L}} \approx 0.004082$ | **GPT-2-compatible modernized init**: Radford et al., 2019 Section 2.3 |
 | **Dropout Policy** | 0.1 uniform | 0.1 uniform (`dropout = 0.1`) | **Faithful**: Uniform dropout across embeddings, attn, residual |
 | **Optimizer** | Classic Adam with L2 decay | **AdamW** (Decoupled Weight Decay) | **Modernized**: Loshchilov & Hutter (2017) prevents gradient-scale corruption |
 | **Optimizer $\beta_1, \beta_2$** | $\beta_1 = 0.9, \beta_2 = 0.98$ (or 0.999) | $\beta_1 = 0.9, \beta_2 = 0.95$ | **Modernized**: Industry standard for Transformer stability (GPT-3/nanoGPT) |
@@ -33,7 +55,7 @@ This document presents a comprehensive audit and comparison between the historic
 | **Attention Backend** | Manual matrix multiplication | **PyTorch SDPA** (FlashAttention / Mem-Efficient) | **Modernized**: High-efficiency hardware acceleration without numerical divergence |
 | **Learning Rate Schedule** | Linear Warmup + Cosine Decay | Linear Warmup (2,000 steps) + Cosine Decay to $0.1 \times \text{lr}$ | **Modernized**: Stable convergence curve |
 | **Training Corpus** | WebText (~40GB private dataset) | **FineWeb-Edu** (10B sample / 2.5B target) | **Project-Specific**: Open, high educational quality web crawl |
-| **Token Budget** | ~40 Billion tokens | ~2.5 Billion tokens (Chinchilla compute-optimal) | **Project-Specific**: 20 tokens per parameter ratio |
+| **Token Budget** | ~40 Billion tokens | ~2.5 Billion tokens (**Chinchilla-inspired**) | **Project-Specific**: ~20 tokens per parameter ratio for 124M model |
 
 ---
 
