@@ -1,14 +1,18 @@
 """Unit tests for run provenance metadata, config serialization, and summary generation."""
 
 from dataclasses import asdict
+import math
 from pathlib import Path
+import pytest
 from basikgpt.config import GPTConfig
 from basikgpt.training.config import TrainingConfig
 from basikgpt.training.metadata import (
     RUN_FORMAT_VERSION,
     atomic_save_json,
     extract_dataset_provenance,
+    gradient_was_clipped,
     load_json,
+    perplexity_from_loss,
     save_run_metadata,
     save_run_summary,
 )
@@ -145,3 +149,12 @@ def test_git_and_system_metadata_helpers() -> None:
     assert "nvidia_driver" in sys_meta
     assert "cuda_runtime" in sys_meta
     assert "cloud_provider" in sys_meta
+
+
+def test_perplexity_from_loss_and_gradient_clip_helpers() -> None:
+    assert perplexity_from_loss(0.0) == pytest.approx(1.0)
+    assert perplexity_from_loss(math.log(2.0)) == pytest.approx(2.0)
+    assert math.isinf(perplexity_from_loss(1e4))
+    assert gradient_was_clipped(1.5, 1.0) is True
+    assert gradient_was_clipped(0.5, 1.0) is False
+    assert gradient_was_clipped(10.0, None) is False

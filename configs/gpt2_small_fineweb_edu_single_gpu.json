@@ -36,6 +36,36 @@
     "actual_token_budget": 2500001792,
     "overshoot_tokens": 1792
   },
+  "logging_protocol": {
+    "eval_at_start": true,
+    "eval_tokens": 131072,
+    "eval_batches": 16,
+    "eval_interval_steps": 1526,
+    "eval_interval_tokens_approx": 100007936,
+    "log_interval_steps": 10,
+    "checkpoint_token_milestones": [
+      100000000,
+      500000000,
+      1000000000,
+      2500000000
+    ],
+    "checkpoint_steps": [
+      1526,
+      7630,
+      15259,
+      38147
+    ],
+    "track_data_sample_index": true,
+    "do_not_use_train_py_interval_defaults": true,
+    "downstream_eval": {
+      "when": "after each checkpoint_steps file and after step-final.pt",
+      "in_loop": false,
+      "evaluate_py": "python scripts/evaluate.py --checkpoint <ckpt> --data-dir <val shards> --device cuda",
+      "evaluate_hellaswag_py": "python scripts/evaluate_hellaswag.py --checkpoint <ckpt> --device cuda --split validation",
+      "note": "In-loop val_loss covers eval_tokens only. Full validation perplexity and HellaSwag acc_norm come from the CLIs above, not from metrics.jsonl."
+    },
+    "cli_flags_example": "--eval-at-start --eval-tokens 131072 --eval-interval 1526 --log-interval 10 --checkpoint-steps 1526,7630,15259,38147 --no-shuffle --track-data-index"
+  },
   "notes": "Provisional single-GPU baseline from RTX PRO 4500 Blackwell 1M/10M FineWeb-Edu pilots. Not an optimal hyperparameter claim.",
   "extra": {
     "selection_reason": "Both 10M runs were finite with process-level resume. A training-only 82,941 tok/s allocated 9.30 GiB; B 88,995 tok/s allocated 16.48 GiB. Canonical prefers correctness, VRAM headroom, and operational simplicity (uncompiled B=8 G=8) over a modest compile speedup.",

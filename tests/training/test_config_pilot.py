@@ -22,6 +22,7 @@ from basikgpt.training.config_pilot import (
     checkpoint_steps_for_pilot,
     eval_interval_for_pilot,
     load_canonical_config,
+    main_run_logging_protocol,
     plan_pilot_stage,
     save_canonical_config,
 )
@@ -95,6 +96,28 @@ def test_canonical_config_roundtrip(tmp_path: Path) -> None:
     assert loaded["grad_accum_steps"] == 8
     assert loaded["tokens_per_optimizer_step"] == COMPARISON_TOKEN_BATCH
     assert loaded["main_plan"]["optimizer_steps"] == 38_147
+    protocol = loaded["logging_protocol"]
+    assert protocol["eval_at_start"] is True
+    assert protocol["eval_tokens"] == 131_072
+    assert protocol["checkpoint_steps"] == [1526, 7630, 15259, 38147]
+    assert protocol["eval_interval_steps"] == 1526
+    assert protocol["do_not_use_train_py_interval_defaults"] is True
+
+
+def test_main_run_logging_protocol_matches_token_milestones() -> None:
+    protocol = main_run_logging_protocol(CANDIDATE_A)
+    plan = CANDIDATE_A.plan(MAIN_TOKEN_BUDGET)
+    assert protocol["checkpoint_steps"][-1] == plan.optimizer_steps
+    assert protocol["checkpoint_steps"] == main_run_logging_protocol(CANDIDATE_B)["checkpoint_steps"]
+    assert "evaluate_hellaswag.py" in protocol["downstream_eval"]["evaluate_hellaswag_py"]
+    assert "--eval-at-start" in protocol["cli_flags_example"]
+
+
+def test_committed_canonical_config_includes_logging_protocol() -> None:
+    repo_cfg = Path(__file__).resolve().parents[2] / "configs" / "gpt2_small_fineweb_edu_single_gpu.json"
+    loaded = load_canonical_config(repo_cfg)
+    assert loaded["logging_protocol"]["checkpoint_steps"] == main_run_logging_protocol(CANDIDATE_A)["checkpoint_steps"]
+    assert loaded["logging_protocol"]["eval_at_start"] is True
 
 
 def test_data_sample_index_resume(tmp_path: Path) -> None:
@@ -214,6 +237,7 @@ def test_eval_at_start_logs_step_zero(tmp_path: Path) -> None:
     val_steps = [r["step"] for r in records if r.get("type") == "val"]
     assert 0 in val_steps
     assert all(math.isfinite(r["val_loss"]) for r in records if r.get("type") == "val")
+    assert all("val_perplexity" in r for r in records if r.get("type") == "val")
 
 
 def test_uncompiled_checkpoint_has_no_compile_keys(tmp_path: Path) -> None:

@@ -35,6 +35,9 @@ MIN_LEARNING_RATE = 6e-5
 WEIGHT_DECAY = 0.1
 MAX_GRAD_NORM = 1.0
 MAIN_WARMUP_STEPS_PROVISIONAL = 2000
+MAIN_CHECKPOINT_TOKEN_MILESTONES = (100_000_000, 500_000_000, 1_000_000_000, 2_500_000_000)
+MAIN_EVAL_TOKEN_INTERVAL = 100_000_000
+MAIN_LOG_INTERVAL_STEPS = 10
 DATASET_REPO = "HuggingFaceFW/fineweb-edu"
 DATASET_CONFIG = "sample-10BT"
 DATASET_REVISION = "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
@@ -200,6 +203,65 @@ def eval_interval_for_pilot(optimizer_steps: int) -> int:
     return max(1, round(optimizer_steps / 4))
 
 
+def steps_for_token_budget(candidate: ExecutionCandidate, target_tokens: int, max_steps: int) -> int:
+    """Ceiling optimizer-step index for a token milestone, clamped to the main-run horizon."""
+    step = candidate.plan(target_tokens).optimizer_steps
+    return min(step, max_steps)
+
+
+def main_run_logging_protocol(candidate: ExecutionCandidate) -> dict[str, Any]:
+    """CLI cadence for the 2.5B single-GPU run so whitepaper curves remain recoverable.
+
+    `scripts/train.py` defaults (eval/checkpoint every 50 steps) must not be used:
+    they would write hundreds of full checkpoints. HellaSwag is not inside Trainer;
+    run the evaluation CLIs on the listed checkpoint files after they are written.
+    """
+    plan = candidate.plan(MAIN_TOKEN_BUDGET)
+    tps = candidate.tokens_per_optimizer_step
+    checkpoint_steps = [
+        steps_for_token_budget(candidate, tokens, plan.optimizer_steps)
+        for tokens in MAIN_CHECKPOINT_TOKEN_MILESTONES
+    ]
+    # Preserve milestone order while dropping duplicates after clamping.
+    unique_checkpoint_steps: list[int] = []
+    for step in checkpoint_steps:
+        if step not in unique_checkpoint_steps:
+            unique_checkpoint_steps.append(step)
+    eval_interval_steps = steps_for_token_budget(
+        candidate, MAIN_EVAL_TOKEN_INTERVAL, plan.optimizer_steps
+    )
+    checkpoint_csv = ",".join(str(step) for step in unique_checkpoint_steps)
+    return {
+        "eval_at_start": True,
+        "eval_tokens": EVAL_TOKENS_PER_EVAL,
+        "eval_batches": candidate.eval_batches(EVAL_TOKENS_PER_EVAL),
+        "eval_interval_steps": eval_interval_steps,
+        "eval_interval_tokens_approx": eval_interval_steps * tps,
+        "log_interval_steps": MAIN_LOG_INTERVAL_STEPS,
+        "checkpoint_token_milestones": list(MAIN_CHECKPOINT_TOKEN_MILESTONES),
+        "checkpoint_steps": unique_checkpoint_steps,
+        "track_data_sample_index": True,
+        "do_not_use_train_py_interval_defaults": True,
+        "downstream_eval": {
+            "when": "after each checkpoint_steps file and after step-final.pt",
+            "in_loop": False,
+            "evaluate_py": "python scripts/evaluate.py --checkpoint <ckpt> --data-dir <val shards> --device cuda",
+            "evaluate_hellaswag_py": (
+                "python scripts/evaluate_hellaswag.py --checkpoint <ckpt> --device cuda --split validation"
+            ),
+            "note": (
+                "In-loop val_loss covers eval_tokens only. Full validation perplexity and "
+                "HellaSwag acc_norm come from the CLIs above, not from metrics.jsonl."
+            ),
+        },
+        "cli_flags_example": (
+            f"--eval-at-start --eval-tokens {EVAL_TOKENS_PER_EVAL} "
+            f"--eval-interval {eval_interval_steps} --log-interval {MAIN_LOG_INTERVAL_STEPS} "
+            f"--checkpoint-steps {checkpoint_csv} --no-shuffle --track-data-index"
+        ),
+    }
+
+
 def canonical_config_dict(
     candidate: ExecutionCandidate,
     *,
@@ -238,6 +300,7 @@ def canonical_config_dict(
         "tokenizer_encoding": tokenizer_encoding,
         "main_token_budget": MAIN_TOKEN_BUDGET,
         "main_plan": plan.to_dict(),
+        "logging_protocol": main_run_logging_protocol(candidate),
         "notes": (
             "Provisional single-GPU baseline from RTX PRO 4500 Blackwell 1M/10M "
             "FineWeb-Edu pilots. Not an optimal hyperparameter claim."
@@ -350,7 +413,15 @@ def summarize_run_metrics(run_dir: Path | str) -> dict[str, Any]:
         "train_loss_initial": losses[0] if losses else None,
         "train_loss_final": losses[-1] if losses else None,
         "val_loss_final": summary.get("final_val_loss") or (val_rows[-1]["val_loss"] if val_rows else None),
-        "val_curve": [{"step": row["step"], "tokens_seen": row.get("tokens_seen"), "val_loss": row.get("val_loss")} for row in val_rows],
+        "val_curve": [
+            {
+                "step": row["step"],
+                "tokens_seen": row.get("tokens_seen"),
+                "val_loss": row.get("val_loss"),
+                "val_perplexity": row.get("val_perplexity"),
+            }
+            for row in val_rows
+        ],
         "grad_norm_min": min(grad_norms) if grad_norms else None,
         "grad_norm_max": max(grad_norms) if grad_norms else None,
         "grad_norm_mean": (sum(grad_norms) / len(grad_norms)) if grad_norms else None,

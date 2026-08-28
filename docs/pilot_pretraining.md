@@ -65,8 +65,10 @@ Pilot runs enforce fail-fast guardrails to abort immediately on numerical diverg
 2. **Finite Gradient Guardrail**:
    After unscaling (FP16) and before or during clipping, the total Euclidean gradient norm $\|\mathbf{g}\|_2$ is measured. If $\|\mathbf{g}\|_2 \in \{\text{NaN}, +\infty\}$, `FloatingPointError` is raised immediately. This check applies to FP32, BF16, and FP16 (`GradScaler`) paths.
 3. **Logged Gradient Norm**:
-   Gradient norms recorded in `metrics.jsonl` are the true pre-clipping total Euclidean norm $\|\mathbf{g}\|_2 = \sqrt{\sum_i \|\mathbf{g}_i\|_2^2}$, including when `max_grad_norm` is `None` (no clipping). They are never reported as `0.0` merely because clipping is disabled.
-4. **Learning Rate Alignment**:
+   Gradient norms recorded in `metrics.jsonl` are the true pre-clipping total Euclidean norm $\|\mathbf{g}\|_2 = \sqrt{\sum_i \|\mathbf{g}_i\|_2^2}$, including when `max_grad_norm` is `None` (no clipping). They are never reported as `0.0` merely because clipping is disabled. Train records also store `grad_clipped` (`true` iff clipping is enabled and the pre-clip norm exceeded `max_grad_norm`).
+4. **Whitepaper convenience fields**:
+   `run.json` `extra` records `parameter_count` and `tokens_per_optimizer_step`. Train records store Kaplan-style `estimated_flops = 6ND` over the logging interval (not MFU). Val records store `val_perplexity = exp(val_loss)`.
+5. **Learning Rate Alignment**:
    Scheduler advances strictly once per global optimizer step (after all $G$ micro-batches), maintaining exact warmup and cosine decay boundaries.
 
 ---

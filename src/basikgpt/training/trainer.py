@@ -11,11 +11,17 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from basikgpt.training.accounting import estimate_training_flops
 from basikgpt.training.checkpoint import load_checkpoint, save_checkpoint
 from basikgpt.training.compile import compile_model
 from basikgpt.training.config import TrainingConfig
 from basikgpt.training.loss import compute_cross_entropy_loss
-from basikgpt.training.metadata import save_run_metadata, save_run_summary
+from basikgpt.training.metadata import (
+    gradient_was_clipped,
+    perplexity_from_loss,
+    save_run_metadata,
+    save_run_summary,
+)
 from basikgpt.training.optimizer import configure_optimizers
 from basikgpt.training.reproducibility import seed_everything
 from basikgpt.training.scheduler import get_learning_rate_at_step, update_learning_rate
@@ -138,6 +144,8 @@ class Trainer:
         self.step_durations: list[float] = []
         self.cold_compile_seconds: float | None = None
         self.compile_recompile_info: dict[str, Any] | None = None
+        self.parameter_count = self._count_parameters()
+        self.tokens_per_optimizer_step = self._tokens_per_optimizer_step()
 
         # 5. Save run provenance. On resume this refreshes training_config.json
         # to match the continuing process (e.g. stop_at_step cleared).
@@ -149,6 +157,10 @@ class Trainer:
                 training_config=self.config,
                 dataset_manifest=dataset_manifest,
                 dataset_manifest_path=dataset_manifest_path,
+                extra_metadata={
+                    "parameter_count": self.parameter_count,
+                    "tokens_per_optimizer_step": self.tokens_per_optimizer_step,
+                },
             )
 
     def _infinite_loader(self, loader: DataLoader) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
@@ -251,6 +263,31 @@ class Trainer:
     def _sdpa_context(self):
         """Forces a single SDPA backend when configured; `auto` leaves PyTorch dispatch unchanged."""
         return sdpa_kernel_context(self.config.sdpa_kernel)
+
+    def _count_parameters(self) -> int:
+        if hasattr(self.raw_model, "num_parameters"):
+            return int(self.raw_model.num_parameters())
+        return sum(p.numel() for p in self.raw_model.parameters())
+
+    def _tokens_per_optimizer_step(self) -> int | None:
+        context_length = getattr(getattr(self.raw_model, "config", None), "context_length", None)
+        if context_length is None:
+            return None
+        return (
+            self.config.batch_size
+            * int(context_length)
+            * self.config.gradient_accumulation_steps
+        )
+
+    def _val_metrics_record(self, val_loss: float, elapsed_seconds: float) -> dict[str, Any]:
+        return {
+            "type": "val",
+            "step": self.global_step,
+            "tokens_seen": self.tokens_seen,
+            "val_loss": val_loss,
+            "val_perplexity": perplexity_from_loss(val_loss),
+            "elapsed_seconds": elapsed_seconds,
+        }
 
     def evaluate(self, num_batches: int | None = None) -> float:
         """Runs an evaluation loop over validation batches without mutating training state.
@@ -445,15 +482,7 @@ class Trainer:
                 start_val = self.evaluate()
                 last_val_loss = start_val
                 self.last_val_loss = start_val
-                self._append_metrics_record(
-                    {
-                        "type": "val",
-                        "step": self.global_step,
-                        "tokens_seen": self.tokens_seen,
-                        "val_loss": start_val,
-                        "elapsed_seconds": 0.0,
-                    }
-                )
+                self._append_metrics_record(self._val_metrics_record(start_val, elapsed_seconds=0.0))
                 print(f"Step {self.global_step:06d}/{self.config.max_steps:06d} | Val: {start_val:.4f}")
 
             while self.global_step < loop_limit:
@@ -524,6 +553,12 @@ class Trainer:
                         "train_loss": step_metrics["loss"],
                         "learning_rate": step_metrics["lr"],
                         "grad_norm": step_metrics["grad_norm"],
+                        "grad_clipped": gradient_was_clipped(
+                            step_metrics["grad_norm"], self.config.max_grad_norm
+                        ),
+                        "estimated_flops": estimate_training_flops(
+                            self.parameter_count, int(tokens_delta)
+                        ),
                         "tokens_per_sec": tok_per_sec,
                         "training_only_tokens_per_sec": training_only_tok_s,
                         "end_to_end_tokens_per_sec": e2e_tok_s,
@@ -564,13 +599,7 @@ class Trainer:
 
                 if val_loss is not None:
                     self._append_metrics_record(
-                        {
-                            "type": "val",
-                            "step": self.global_step,
-                            "tokens_seen": self.tokens_seen,
-                            "val_loss": val_loss,
-                            "elapsed_seconds": elapsed_total,
-                        }
+                        self._val_metrics_record(val_loss, elapsed_seconds=elapsed_total)
                     )
 
             self.cold_compile_seconds = self._estimate_cold_compile_seconds()

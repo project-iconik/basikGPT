@@ -3,6 +3,7 @@
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 from typing import Any
 import basikgpt
@@ -11,6 +12,21 @@ from basikgpt.training.config import TrainingConfig
 from basikgpt.training.reproducibility import get_git_metadata, get_system_metadata
 
 RUN_FORMAT_VERSION = 1
+
+
+def perplexity_from_loss(loss: float) -> float:
+    """Converts mean cross-entropy to perplexity; overflow maps to +inf."""
+    try:
+        return math.exp(loss)
+    except OverflowError:
+        return float("inf")
+
+
+def gradient_was_clipped(grad_norm: float, max_grad_norm: float | None) -> bool:
+    """True when clipping is enabled and the pre-clip L2 norm exceeded the threshold."""
+    if max_grad_norm is None:
+        return False
+    return grad_norm > max_grad_norm
 
 
 def atomic_save_json(path: Path | str, data: dict[str, Any], indent: int = 2) -> Path:

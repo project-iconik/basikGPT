@@ -8,6 +8,7 @@ from basikgpt.training.accounting import (
     calculate_tokens_seen,
     calculate_training_steps,
     calculate_warmup_steps,
+    estimate_training_flops,
 )
 
 
@@ -186,3 +187,12 @@ def test_warmup_steps_fraction() -> None:
     assert calculate_warmup_steps(1, fraction=0.10) == 1
     with pytest.raises(ValueError):
         calculate_warmup_steps(0)
+
+
+def test_estimate_training_flops_is_six_n_d() -> None:
+    assert estimate_training_flops(124_439_808, 65_536) == 6 * 124_439_808 * 65_536
+    assert estimate_training_flops(1, 0) == 0
+    with pytest.raises(ValueError):
+        estimate_training_flops(-1, 10)
+    with pytest.raises(ValueError):
+        estimate_training_flops(10, -1)

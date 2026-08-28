@@ -1,6 +1,7 @@
 """Unit tests for structured JSONL metrics logging and unscaled loss recording."""
 
 import json
+import math
 from pathlib import Path
 import pytest
 import torch
@@ -53,15 +54,24 @@ def test_structured_metrics_jsonl_schema(tmp_path: Path) -> None:
     # Check train record
     train_records = [r for r in records if r["type"] == "train"]
     assert len(train_records) > 0
+    prev_tokens = 0
+    param_count = model.num_parameters()
     for tr in train_records:
         assert "step" in tr
         assert "tokens_seen" in tr
         assert "loss" in tr
         assert "learning_rate" in tr
         assert "grad_norm" in tr
+        assert "grad_clipped" in tr
+        assert isinstance(tr["grad_clipped"], bool)
+        assert tr["grad_clipped"] is (tr["grad_norm"] > 1.0)
+        assert "estimated_flops" in tr
+        tokens_delta = tr["tokens_seen"] - prev_tokens
+        assert tr["estimated_flops"] == 6 * param_count * tokens_delta
         assert "tokens_per_sec" in tr
         assert "elapsed_seconds" in tr
         assert tr["loss"] > 0
+        prev_tokens = tr["tokens_seen"]
 
     # Check val record
     val_records = [r for r in records if r["type"] == "val"]
@@ -70,8 +80,14 @@ def test_structured_metrics_jsonl_schema(tmp_path: Path) -> None:
         assert "step" in vr
         assert "tokens_seen" in vr
         assert "val_loss" in vr
+        assert "val_perplexity" in vr
         assert "elapsed_seconds" in vr
         assert vr["val_loss"] > 0
+        assert vr["val_perplexity"] == pytest.approx(math.exp(vr["val_loss"]))
+
+    run_meta = json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))
+    assert run_meta["extra"]["parameter_count"] == param_count
+    assert run_meta["extra"]["tokens_per_optimizer_step"] == 2 * 8 * 1
 
 
 def test_train_loss_logged_is_unscaled(tmp_path: Path) -> None:
@@ -102,6 +118,7 @@ def test_train_loss_logged_is_unscaled(tmp_path: Path) -> None:
     # Theoretical cross-entropy on uniform random 32 tokens is ~ -ln(1/32) = 3.465
     # If loss were scaled by 1/4, it would be ~ 0.866.
     assert logged_loss > 2.0, f"Expected unscaled cross entropy (~3.46), got {logged_loss:.4f} (looks mistakenly scaled)"
+    assert history[0]["grad_clipped"] == (history[0]["grad_norm"] > 1.0)
 
 
 def test_val_metrics_logged_when_eval_not_aligned_with_log(tmp_path: Path) -> None:
@@ -148,3 +165,37 @@ def test_val_metrics_logged_when_eval_not_aligned_with_log(tmp_path: Path) -> No
 
     train_steps = {r["step"] for r in records if r["type"] == "train"}
     assert train_steps == {3, 6}
+
+
+def test_grad_clipped_false_when_clipping_disabled(tmp_path: Path) -> None:
+    """When max_grad_norm is None, grad_clipped is always False and grad_norm is still recorded."""
+    vocab_size, context_length = 32, 8
+    torch.manual_seed(42)
+    raw = torch.randint(0, vocab_size, (8, context_length + 1), dtype=torch.long)
+    train_ds = TensorDataset(raw[:, :-1], raw[:, 1:])
+
+    cfg = GPTConfig(vocab_size=vocab_size, context_length=context_length, n_layers=1, n_heads=2, d_model=16, d_ff=64)
+    model = GPT(cfg)
+    train_cfg = TrainingConfig(
+        learning_rate=1e-3,
+        warmup_steps=0,
+        max_steps=2,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        max_grad_norm=None,
+        log_interval=1,
+        eval_interval=100,
+        checkpoint_interval=100,
+        output_dir=str(tmp_path),
+    )
+    Trainer(model, train_cfg, DataLoader(train_ds, batch_size=2), overwrite=True).train()
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "metrics.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    train_records = [r for r in records if r["type"] == "train"]
+    assert train_records
+    for tr in train_records:
+        assert tr["grad_clipped"] is False
+        assert tr["grad_norm"] > 0

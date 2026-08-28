@@ -7,6 +7,7 @@ from basikgpt.training.accounting import (
     calculate_tokens_seen,
     calculate_training_steps,
     calculate_warmup_steps,
+    estimate_training_flops,
 )
 from basikgpt.training.checkpoint import (
     CHECKPOINT_SCHEMA_VERSION,
@@ -80,4 +81,5 @@ __all__ = [
     "calculate_warmup_steps",
     "calculate_compile_break_even_tokens",
     "TokenBudgetPlan",
+    "estimate_training_flops",
 ]

@@ -136,6 +136,22 @@ def calculate_eval_batches(
     return eval_tokens // tokens_per_batch
 
 
+KAPLAN_FLOPS_COEFFICIENT = 6
+
+
+def estimate_training_flops(parameter_count: int, token_count: int) -> int:
+    """Approximates training FLOPs as 6ND (Kaplan et al.), not hardware MFU.
+
+    This is a parameter-and-token product, not a measured kernel FLOP count and
+    not model-FLOPs utilization. Attention's extra sequence-length term is omitted.
+    """
+    if parameter_count < 0:
+        raise ValueError(f"parameter_count must be non-negative, got {parameter_count}")
+    if token_count < 0:
+        raise ValueError(f"token_count must be non-negative, got {token_count}")
+    return KAPLAN_FLOPS_COEFFICIENT * parameter_count * token_count
+
+
 def calculate_warmup_steps(max_steps: int, fraction: float = 0.10) -> int:
     """Linear-warmup step count as a fraction of optimizer steps, at least 1."""
     if max_steps <= 0:

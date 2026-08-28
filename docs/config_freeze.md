@@ -157,3 +157,29 @@ Classification for M16 pilots: **exact-sample-index** (state-continuous **and** 
 DDP, FSDP, tensor parallelism, DeepSpeed/ZeRO, activation checkpointing, custom Triton/FlashAttention, new tokenizer/dataset, broad LR/batch sweeps, 2.5B main training.
 
 Recommended next: **Milestone 17 — Main Pretraining Readiness Audit & 100M Token Scale Test**.
+
+---
+
+## 11. Main-run logging cadence (whitepaper)
+
+`scripts/train.py` defaults (`--eval-interval 50`, `--checkpoint-interval 50`) must **not** be used for 38,147 optimizer steps: they would write hundreds of full checkpoints. The frozen protocol lives in [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json) under `logging_protocol`.
+
+| Item | Value |
+|---|---|
+| `--eval-at-start` | required (step-0 val baseline) |
+| `--eval-tokens` | 131,072 (same as M16; A: 16 batches) |
+| `--eval-interval` | 1,526 steps (≈ 100M tokens) |
+| `--log-interval` | 10 |
+| `--checkpoint-steps` | 1526, 7630, 15259, 38147 (100M / 500M / 1B / 2.5B) |
+| data order | `--no-shuffle --track-data-index` |
+
+After each of those checkpoint files (and `step-final.pt`), run **outside** the training loop:
+
+```bash
+python scripts/evaluate.py --checkpoint <ckpt> --data-dir <val shards> --device cuda
+python scripts/evaluate_hellaswag.py --checkpoint <ckpt> --device cuda --split validation
+```
+
+In-loop `val_loss` covers 131,072 tokens only. Full validation perplexity and HellaSwag `acc_norm` are not written to `metrics.jsonl`.
+
+During training, `metrics.jsonl` now also records `val_perplexity`, `grad_clipped`, and Kaplan `estimated_flops` (6ND over the log interval; not MFU). `run.json` `extra` records `parameter_count` and `tokens_per_optimizer_step`.
