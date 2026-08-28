@@ -26,6 +26,7 @@ from basikgpt.training.optimizer import configure_optimizers
 from basikgpt.training.reproducibility import seed_everything
 from basikgpt.training.scheduler import get_learning_rate_at_step, update_learning_rate
 from basikgpt.training.sdpa import sdpa_kernel_context
+from basikgpt.training.whitepaper import collect_static_run_extra, collect_summary_whitepaper_fields
 
 
 def resolve_device(device_str: str) -> torch.device:
@@ -63,6 +64,7 @@ class Trainer:
         resume_from: Path | str | None = None,
         overwrite: bool = False,
         init_weights: Path | str | None = None,
+        extra_metadata: dict[str, Any] | None = None,
     ) -> None:
         self.config = config
         self.run_name = run_name or Path(config.output_dir).name
@@ -138,6 +140,7 @@ class Trainer:
         self.tokens_seen = 0
         self.data_sample_index = 0
         self.best_val_loss: float | None = None
+        self.best_val_step: int | None = None
         self.last_val_loss: float | None = None
         self.time_to_first_optimizer_step: float | None = None
         self.train_elapsed_seconds = 0.0
@@ -157,10 +160,16 @@ class Trainer:
                 training_config=self.config,
                 dataset_manifest=dataset_manifest,
                 dataset_manifest_path=dataset_manifest_path,
-                extra_metadata={
-                    "parameter_count": self.parameter_count,
-                    "tokens_per_optimizer_step": self.tokens_per_optimizer_step,
-                },
+                extra_metadata=collect_static_run_extra(
+                    model=self.raw_model,
+                    config=self.config,
+                    optimizer=self.optimizer,
+                    parameter_count=self.parameter_count,
+                    tokens_per_optimizer_step=self.tokens_per_optimizer_step,
+                    train_loader=self.train_loader,
+                    val_loader=self.val_loader,
+                    extra_metadata=extra_metadata,
+                ),
             )
 
     def _infinite_loader(self, loader: DataLoader) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
@@ -333,6 +342,7 @@ class Trainer:
         mean_val_loss = total_loss / max(1, batches_evaluated)
         if self.best_val_loss is None or mean_val_loss < self.best_val_loss:
             self.best_val_loss = mean_val_loss
+            self.best_val_step = self.global_step
 
         return mean_val_loss
 
@@ -467,6 +477,8 @@ class Trainer:
         last_log_time = start_time
         last_tokens_seen = self.tokens_seen
         last_train_loss: float | None = None
+        first_train_loss: float | None = None
+        first_train_step: int | None = None
         last_val_loss: float | None = None
         last_ckpt_path: Path | None = None
         compile_counters_start = self._snapshot_compile_counters() if self.config.compile else None
@@ -498,6 +510,9 @@ class Trainer:
                 if self.time_to_first_optimizer_step is None:
                     self.time_to_first_optimizer_step = step_dt
                 last_train_loss = step_metrics["loss"]
+                if first_train_loss is None:
+                    first_train_loss = last_train_loss
+                    first_train_step = self.global_step
 
                 reached_end = self.global_step == self.config.max_steps
                 reached_stop = stop_at is not None and self.global_step == stop_at
@@ -505,7 +520,10 @@ class Trainer:
                     self.global_step % self.config.eval_interval == 0 or reached_end or reached_stop
                 )
                 should_log = (
-                    self.global_step % self.config.log_interval == 0 or reached_end or reached_stop
+                    self.global_step == 1
+                    or self.global_step % self.config.log_interval == 0
+                    or reached_end
+                    or reached_stop
                 )
                 if self.config.checkpoint_steps is not None:
                     should_ckpt = self.global_step in self.config.checkpoint_steps or reached_stop
@@ -637,6 +655,14 @@ class Trainer:
 
             training_only_tok_s = self.tokens_seen / max(1e-6, self.train_elapsed_seconds)
             e2e_tok_s = self.tokens_seen / max(1e-6, elapsed_total)
+            peak_allocated_vram_bytes = None
+            peak_reserved_vram_bytes = None
+            if self.device.type == "cuda":
+                peak_allocated_vram_bytes = int(torch.cuda.max_memory_allocated(self.device))
+                peak_reserved_vram_bytes = int(torch.cuda.max_memory_reserved(self.device))
+            cfg = getattr(self.raw_model, "config", None)
+            context_length = getattr(cfg, "context_length", None)
+            vocab_size = getattr(cfg, "vocab_size", None)
             extra_summary = {
                 "training_only_tokens_per_sec": training_only_tok_s,
                 "end_to_end_tokens_per_sec": e2e_tok_s,
@@ -651,6 +677,29 @@ class Trainer:
                     "exact-sample-index" if self.config.track_data_sample_index else "state-continuous"
                 ),
             }
+            extra_summary.update(
+                collect_summary_whitepaper_fields(
+                    output_dir=self.output_dir,
+                    tokens_seen=self.tokens_seen,
+                    elapsed_seconds=elapsed_total,
+                    parameter_count=self.parameter_count,
+                    tokens_per_optimizer_step=self.tokens_per_optimizer_step,
+                    eval_tokens=(
+                        self.config.batch_size * int(context_length) * self.config.eval_batches
+                        if context_length is not None
+                        else None
+                    ),
+                    uniform_ce=(math.log(int(vocab_size)) if vocab_size is not None else None),
+                    peak_allocated_vram_bytes=peak_allocated_vram_bytes,
+                    peak_reserved_vram_bytes=peak_reserved_vram_bytes,
+                    first_train_loss=first_train_loss,
+                    first_train_step=first_train_step,
+                    last_train_loss=last_train_loss,
+                    last_train_step=self.global_step,
+                    best_val_loss=self.best_val_loss,
+                    best_val_step=self.best_val_step,
+                )
+            )
             save_run_summary(
                 output_dir=self.output_dir,
                 status=status,

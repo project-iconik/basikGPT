@@ -1,0 +1,13 @@
+{
+  "vocab_size": 50257,
+  "context_length": 1024,
+  "n_layers": 12,
+  "n_heads": 12,
+  "d_model": 768,
+  "d_ff": 3072,
+  "dropout": 0.0,
+  "layer_norm_eps": 1e-05,
+  "bias": true,
+  "attention_backend": "sdpa",
+  "initializer_range": 0.02
+}

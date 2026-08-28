@@ -310,6 +310,9 @@ def main() -> None:
     )
 
     tokens_per_step = args.batch_size * model_cfg.context_length * args.grad_accum_steps
+    extra_metadata: dict = {}
+    if plan is not None:
+        extra_metadata["token_budget"] = plan.to_dict()
 
     print("=" * 75)
     print("  basikGPT Pretraining")
@@ -358,6 +361,7 @@ def main() -> None:
         resume_from=args.resume,
         overwrite=args.overwrite,
         init_weights=args.init_weights,
+        extra_metadata=extra_metadata or None,
     )
     trainer.train(resume_from=args.resume)
 

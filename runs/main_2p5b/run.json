@@ -1,0 +1,97 @@
+{
+  "run_format_version": 1,
+  "run_name": "20260828-040941-gpt2_small",
+  "created_at_utc": "2026-08-28T04:10:25.210536+00:00",
+  "basikgpt_version": "0.1.0",
+  "git": {
+    "git_commit": "95e63c325591a96c1a71a288f03742049a589d04",
+    "git_dirty": true
+  },
+  "system": {
+    "platform": "Linux-6.8.0-124-generic-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "cpu_count": 64,
+    "python_version": "3.12.3",
+    "pytorch_version": "2.8.0+cu128",
+    "numpy_version": "2.1.2",
+    "tiktoken_version": "0.14.0",
+    "datasets_version": "5.0.1",
+    "cuda_available": true,
+    "cuda_runtime": "12.8",
+    "nvidia_driver": "580.159.04",
+    "gpu_count": 1,
+    "gpu_name": "NVIDIA RTX PRO 4500 Blackwell",
+    "compute_capability": "12.0",
+    "total_vram_bytes": 33685569536,
+    "bf16_supported": true,
+    "cloud_provider": "RunPod"
+  },
+  "seed": 1337,
+  "device": "cuda",
+  "precision": "bf16",
+  "dataset_manifest_path": "data/fineweb-edu-2p5b/manifest.json",
+  "dataset_repository": "HuggingFaceFW/fineweb-edu",
+  "dataset_config": "sample-10BT",
+  "dataset_revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+  "train_tokens": 2499999466,
+  "validation_tokens": 4986319,
+  "tokenizer_encoding": "gpt2",
+  "eot_token_id": 50256,
+  "extra": {
+    "parameter_count": 124439808,
+    "tokens_per_optimizer_step": 65536,
+    "parameter_breakdown": {
+      "token_embedding": 38597376,
+      "position_embedding": 786432,
+      "embeddings": 39383808,
+      "transformer_blocks_and_final_ln": 85056000,
+      "unique_total_tied": 124439808,
+      "unique_total_untied": 163037184,
+      "head_dim": 64,
+      "vocab_size": 50257,
+      "measured_unique": 124439808
+    },
+    "optimizer_param_groups": {
+      "groups": [
+        {
+          "weight_decay": 0.1,
+          "tensors": 50,
+          "parameters": 124318464
+        },
+        {
+          "weight_decay": 0.0,
+          "tensors": 98,
+          "parameters": 121344
+        }
+      ],
+      "decay_parameters": 124318464,
+      "no_decay_parameters": 121344
+    },
+    "tie_word_embeddings": true,
+    "packed_data": {
+      "train_sequences": 2440000,
+      "train_tokens": 2499999466,
+      "train_discarded_tail_tokens": 1436966,
+      "validation_sequences": 4867,
+      "validation_tokens": 4986319,
+      "validation_discarded_tail_tokens": 2506
+    },
+    "token_budget": {
+      "requested_token_budget": 2500000000,
+      "micro_batch_size": 8,
+      "context_length": 1024,
+      "grad_accum_steps": 8,
+      "world_size": 1,
+      "tokens_per_micro_batch": 8192,
+      "tokens_per_optimizer_step": 65536,
+      "optimizer_steps": 38147,
+      "actual_token_budget": 2500001792,
+      "overshoot_tokens": 1792
+    },
+    "eval_tokens": 131072,
+    "training_sequence_length": 1024,
+    "head_dim": 64,
+    "uniform_ce_reference": 10.82490511970208,
+    "vocab_size": 50257
+  }
+}

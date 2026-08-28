@@ -1,0 +1,88 @@
+{
+  "schema": "basikgpt.m17_100m_scale_test.v1",
+  "status": "PASS",
+  "fail_reasons": [],
+  "git": {
+    "sha": "95e63c325591a96c1a71a288f03742049a589d04",
+    "dirty": false
+  },
+  "dataset": {
+    "path": "data/fineweb-edu-2p5b",
+    "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+    "config": "sample-10BT",
+    "train_tokens": 2499999466,
+    "validation_tokens": 4986319,
+    "train_shards": 2500,
+    "validation_shards": 5,
+    "train_token_shortfall_vs_2_5b": 534
+  },
+  "gates": {
+    "finite_train_loss": true,
+    "finite_grad_norm": true,
+    "finite_val_loss": true,
+    "val_declined_overall": true,
+    "resume_ok": true,
+    "resume_class": "exact-sample-index",
+    "token_accounting_ok": true,
+    "expected_tokens": 100007936,
+    "actual_tokens": 100007936
+  },
+  "val_curve": [
+    {
+      "step": 0,
+      "tokens_seen": 0,
+      "val_loss": 10.989909648895264,
+      "val_perplexity": 59273.02842546672
+    },
+    {
+      "step": 763,
+      "tokens_seen": 50003968,
+      "val_loss": 5.769345462322235,
+      "val_perplexity": 320.32799727153423
+    },
+    {
+      "step": 1526,
+      "tokens_seen": 100007936,
+      "val_loss": 4.720363438129425,
+      "val_perplexity": 112.20902629663657
+    }
+  ],
+  "val_loss_step0": 10.989909648895264,
+  "val_loss_step763": 5.769345462322235,
+  "val_loss_step1526": 4.720363438129425,
+  "train_loss_initial": 10.417359352111816,
+  "train_loss_final": 4.809066414833069,
+  "grad_norm_min": 0.5810868740081787,
+  "grad_norm_median": 0.8478801846504211,
+  "grad_norm_max": 8.37606143951416,
+  "vram": {
+    "peak_allocated_vram_bytes": 9986226176,
+    "peak_reserved_vram_bytes": 10934550528,
+    "peak_allocated_gib": 9.300397872924805,
+    "peak_reserved_gib": 10.18359375
+  },
+  "throughput": {
+    "training_only_tokens_per_sec": 85327.15618582853,
+    "end_to_end_tokens_per_sec": 84688.9852309688,
+    "elapsed_seconds": 1180.8848072420806
+  },
+  "resume_probe": {
+    "resume_ok": true,
+    "resumed_from_step": 763,
+    "probe_final_step": 764,
+    "status": "paused",
+    "resume_class": "exact-sample-index",
+    "data_sample_index_at_763": 48832,
+    "data_sample_index_at_764": 48896,
+    "data_sample_index_continued": true
+  },
+  "run_summary": {
+    "status": "paused",
+    "optimizer_steps": 1526,
+    "compile": false,
+    "batch_size": 8,
+    "grad_accum_steps": 8,
+    "tokens_per_step": 65536,
+    "run_dir": "/workspace/basikGPT/runs/m17_100m/canonical_100m"
+  }
+}

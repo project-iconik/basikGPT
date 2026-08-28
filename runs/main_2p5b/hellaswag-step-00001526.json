@@ -1,0 +1,59 @@
+{
+  "benchmark": "hellaswag",
+  "split": "validation",
+  "format_style": "activity_ctx",
+  "num_examples": 10042,
+  "raw_accuracy": 0.26379207329217286,
+  "norm_accuracy": 0.25054769966142204,
+  "raw_correct": 2649,
+  "norm_correct": 2516,
+  "elapsed_seconds": 175.88138672243804,
+  "examples_per_second": 57.095296933537846,
+  "metadata": {
+    "git": {
+      "git_commit": "95e63c325591a96c1a71a288f03742049a589d04",
+      "git_dirty": true
+    },
+    "system": {
+      "platform": "Linux-6.8.0-124-generic-x86_64-with-glibc2.39",
+      "processor": "x86_64",
+      "cpu_count": 64,
+      "python_version": "3.12.3",
+      "pytorch_version": "2.8.0+cu128",
+      "numpy_version": "2.1.2",
+      "tiktoken_version": "0.14.0",
+      "datasets_version": "5.0.1",
+      "cuda_available": true,
+      "cuda_runtime": "12.8",
+      "nvidia_driver": "580.159.04",
+      "gpu_count": 1,
+      "gpu_name": "NVIDIA RTX PRO 4500 Blackwell",
+      "compute_capability": "12.0",
+      "total_vram_bytes": 33685569536,
+      "bf16_supported": true,
+      "cloud_provider": "RunPod"
+    },
+    "device": "cuda",
+    "tokenizer": "GPT2Tokenizer (tiktoken gpt2)",
+    "max_context_length": 1024,
+    "model": {
+      "source": "checkpoint",
+      "checkpoint_path": "runs/main_2p5b/step-00001526.pt",
+      "global_step": 1526,
+      "parameters": 124439808,
+      "config": {
+        "vocab_size": 50257,
+        "context_length": 1024,
+        "n_layers": 12,
+        "n_heads": 12,
+        "d_model": 768,
+        "d_ff": 3072,
+        "dropout": 0.0,
+        "layer_norm_eps": 1e-05,
+        "bias": true,
+        "attention_backend": "sdpa",
+        "initializer_range": 0.02
+      }
+    }
+  }
+}

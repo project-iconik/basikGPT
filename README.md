@@ -136,14 +136,14 @@ Status is tracked against the canonical numbering in `AGENTS.md`.
 - [x] **Milestone 7**: Pretraining Engine (AdamW, Cosine Warmup, BF16)
 - [ ] **Milestone 8**: Training Validation (1M $\to$ 10M $\to$ 100M $\to$ 500M tokens) — *partial: CPU Stage A/B pilots only*
 - [ ] **Milestone 9**: Performance Benchmarking & Engineering — *partial: CPU tiny benchmark only*
-- [ ] **Milestone 10**: Canonical Pretraining (~2.5B FineWeb tokens)
+- [x] **Milestone 10**: Canonical Pretraining (~2.5B FineWeb tokens)
 - [ ] **Milestone 11**: Evaluation & Perplexity Analysis — *partial: evaluators implemented; trained-model eval pending*
 - [ ] **Milestone 12**: Scaling Experiments
 - [ ] **Milestone 13**: Distributed Training (DDP $\to$ FSDP)
 - [ ] **Milestone 14**: 30B-ready Architectural Validation
 - [ ] **Milestone 15**: Comprehensive Technical Whitepaper
 
-Implemented outside the original numbered roadmap (used by later milestones): autoregressive generation with KV cache, a HellaSwag zero-shot evaluation engine, local CPU Stage A/B pilots, Milestone 14 RunPod GPU qualification (`docs/runpod.md`), Milestone 15 GPU performance engineering (`docs/performance.md`), and Milestone 16 1M/10M configuration freeze (`docs/config_freeze.md`).
+Implemented outside the original numbered roadmap (used by later milestones): autoregressive generation with KV cache, a HellaSwag zero-shot evaluation engine, local CPU Stage A/B pilots, Milestone 14 RunPod GPU qualification (`docs/runpod.md`), Milestone 15 GPU performance engineering (`docs/performance.md`), Milestone 16 1M/10M configuration freeze (`docs/config_freeze.md`), and the 2.5B FineWeb-Edu main run (`docs/main_2p5b.md`).
 
 On NVIDIA RTX PRO 4500 Blackwell, PyTorch 2.8.0+cu128, BF16, T=1024, `attention_backend=sdpa`:
 
@@ -151,7 +151,7 @@ On NVIDIA RTX PRO 4500 Blackwell, PyTorch 2.8.0+cu128, BF16, T=1024, `attention_
 - Uncompiled B=16 G=1: ≈ 79.3k tokens/sec, peak allocated ≈ 16.5 GiB
 - `torch.compile` inductor `default` B=16 G=1: ≈ 87.2k tokens/sec, peak allocated ≈ 16.0 GiB (opt-in)
 
-Provisional frozen single-GPU pretraining baseline (1M/10M FineWeb-Edu pilots; not an optimal claim): **uncompiled BF16, SDPA auto, B=8, T=1024, G=8, 65,536 tokens/step**. 10M sustained training-only throughput ≈ 82.9k tokens/sec, peak allocated ≈ 9.3 GiB. Config: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json). 2.5B-token main training has not started.
+Provisional frozen single-GPU pretraining baseline (1M/10M FineWeb-Edu pilots; not an optimal claim): **uncompiled BF16, SDPA auto, B=8, T=1024, G=8, 65,536 tokens/step**. Config: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json). The 2.5B-token FineWeb-Edu main run completed on this recipe: 38,147 steps, 2,500,001,792 tokens, ≈ 8.18 GPU-hours, training-only ≈ 85.1k tokens/sec, peak allocated ≈ 9.52 GiB, full-val PPL 25.92, HellaSwag `acc_norm` 29.33%. Logs and eval JSON: [`runs/main_2p5b/`](runs/main_2p5b/). Write-up: [`docs/main_2p5b.md`](docs/main_2p5b.md). Checkpoints (`.pt`) are local-only and are not in git.
 
 ---
 

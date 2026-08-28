@@ -4,7 +4,9 @@ This guide records **Milestone 16**: 1M- and 10M-token FineWeb-Edu GPU pilots th
 
 RTX PRO 4500 Blackwell 단일 GPU에서 1M/10M FineWeb-Edu pilot을 통해 동일 token-batch 후보의 안정성, validation behavior, sustained throughput, checkpoint/resume 및 VRAM headroom을 비교하고 main-run baseline configuration을 잠정 freeze했다.
 
-This is **not** an optimal-hyperparameter claim. Compile is not always better. 10M tokens does not prove final model quality. 2.5B training is not started and is not guaranteed.
+This is **not** an optimal-hyperparameter claim. Compile is not always better. 10M tokens does not prove final model quality. At freeze time, 2.5B training had not started.
+
+After this freeze, the 2.5B FineWeb-Edu main run completed on the frozen recipe. Logs, eval JSON, and the whitepaper snapshot (not `.pt` checkpoints) are in [`runs/main_2p5b/`](../runs/main_2p5b/). Write-up: [`docs/main_2p5b.md`](main_2p5b.md).
 
 Canonical artifact: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json). Machine-readable pilots: `runs/m16_pilot/`.
 

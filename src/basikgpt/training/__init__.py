@@ -45,6 +45,14 @@ from basikgpt.training.sdpa import (
     sdpa_kernel_context,
 )
 from basikgpt.training.trainer import Trainer, resolve_device
+from basikgpt.training.whitepaper import (
+    build_whitepaper_snapshot,
+    collect_static_run_extra,
+    collect_summary_whitepaper_fields,
+    format_whitepaper_markdown,
+    resolve_hellaswag_output_json,
+    write_whitepaper_snapshot,
+)
 
 __all__ = [
     "TrainingConfig",
@@ -82,4 +90,10 @@ __all__ = [
     "calculate_compile_break_even_tokens",
     "TokenBudgetPlan",
     "estimate_training_flops",
+    "build_whitepaper_snapshot",
+    "collect_static_run_extra",
+    "collect_summary_whitepaper_fields",
+    "format_whitepaper_markdown",
+    "resolve_hellaswag_output_json",
+    "write_whitepaper_snapshot",
 ]

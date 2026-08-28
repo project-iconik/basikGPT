@@ -410,9 +410,16 @@ def summarize_run_metrics(run_dir: Path | str) -> dict[str, Any]:
         ),
         "optimizer_steps": summary.get("final_step"),
         "actual_tokens": summary.get("tokens_seen"),
-        "train_loss_initial": losses[0] if losses else None,
-        "train_loss_final": losses[-1] if losses else None,
+        "train_loss_initial": summary.get("first_train_loss")
+        if summary.get("first_train_loss") is not None
+        else (losses[0] if losses else None),
+        "train_loss_final": summary.get("last_train_loss")
+        if summary.get("last_train_loss") is not None
+        else (losses[-1] if losses else None),
         "val_loss_final": summary.get("final_val_loss") or (val_rows[-1]["val_loss"] if val_rows else None),
+        "min_val_loss": summary.get("min_val_loss") or summary.get("best_val_loss"),
+        "min_val_perplexity": summary.get("min_val_perplexity"),
+        "min_val_step": summary.get("min_val_step"),
         "val_curve": [
             {
                 "step": row["step"],
@@ -428,8 +435,10 @@ def summarize_run_metrics(run_dir: Path | str) -> dict[str, Any]:
         "grad_norm_median": _percentile(grad_norms, 0.5),
         "training_only_tokens_per_sec": summary.get("training_only_tokens_per_sec") or last_train.get("training_only_tokens_per_sec"),
         "end_to_end_tokens_per_sec": summary.get("end_to_end_tokens_per_sec") or last_train.get("end_to_end_tokens_per_sec"),
-        "peak_allocated_vram_bytes": last_train.get("peak_allocated_vram_bytes"),
-        "peak_reserved_vram_bytes": last_train.get("peak_reserved_vram_bytes"),
+        "peak_allocated_vram_bytes": summary.get("peak_allocated_vram_bytes")
+        or last_train.get("peak_allocated_vram_bytes"),
+        "peak_reserved_vram_bytes": summary.get("peak_reserved_vram_bytes")
+        or last_train.get("peak_reserved_vram_bytes"),
         "cold_compile_seconds": summary.get("cold_compile_seconds"),
         "time_to_first_optimizer_step": summary.get("time_to_first_optimizer_step"),
         "compile_recompile_info": summary.get("compile_recompile_info"),

@@ -1,0 +1,55 @@
+{
+  "evaluation_format_version": 1,
+  "evaluated_at_utc": "2026-08-28T12:25:16.258344+00:00",
+  "checkpoint_path": "runs/main_2p5b/step-00001526.pt",
+  "device": "cuda",
+  "metrics": {
+    "validation_loss": 4.700911921349692,
+    "perplexity": 110.04748135598496,
+    "evaluated_tokens": 4983808,
+    "batches_evaluated": 1217
+  },
+  "model_config": {
+    "vocab_size": 50257,
+    "context_length": 1024,
+    "n_layers": 12,
+    "n_heads": 12,
+    "d_model": 768,
+    "d_ff": 3072,
+    "dropout": 0.0,
+    "layer_norm_eps": 1e-05,
+    "bias": true,
+    "attention_backend": "sdpa",
+    "initializer_range": 0.02
+  },
+  "dataset": {
+    "manifest_path": "data/fineweb-edu-2p5b/manifest.json",
+    "repository": "HuggingFaceFW/fineweb-edu",
+    "config": "sample-10BT",
+    "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
+  },
+  "git": {
+    "git_commit": "95e63c325591a96c1a71a288f03742049a589d04",
+    "git_dirty": true
+  },
+  "system": {
+    "platform": "Linux-6.8.0-124-generic-x86_64-with-glibc2.39",
+    "processor": "x86_64",
+    "cpu_count": 64,
+    "python_version": "3.12.3",
+    "pytorch_version": "2.8.0+cu128",
+    "numpy_version": "2.1.2",
+    "tiktoken_version": "0.14.0",
+    "datasets_version": "5.0.1",
+    "cuda_available": true,
+    "cuda_runtime": "12.8",
+    "nvidia_driver": "580.159.04",
+    "gpu_count": 1,
+    "gpu_name": "NVIDIA RTX PRO 4500 Blackwell",
+    "compute_capability": "12.0",
+    "total_vram_bytes": 33685569536,
+    "bf16_supported": true,
+    "cloud_provider": "RunPod"
+  },
+  "extra": {}
+}

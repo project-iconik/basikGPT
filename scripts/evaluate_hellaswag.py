@@ -22,6 +22,7 @@ from basikgpt.evaluation.hellaswag import (
 from basikgpt.model.gpt import GPT
 from basikgpt.training.checkpoint import load_model_from_checkpoint
 from basikgpt.training.metadata import atomic_save_json
+from basikgpt.training.whitepaper import resolve_hellaswag_output_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -82,7 +83,7 @@ def parse_args() -> argparse.Namespace:
         "--output-json",
         type=str,
         default=None,
-        help="Optional path to save evaluation summary JSON",
+        help="Path to save evaluation summary JSON (default: <checkpoint-dir>/hellaswag.json)",
     )
     parser.add_argument(
         "--output-jsonl",
@@ -177,9 +178,9 @@ def main() -> None:
     print("=" * 70)
 
     # 5. Export JSON / JSONL
-    if args.output_json:
-        atomic_save_json(args.output_json, summary.to_dict())
-        print(f"Summary JSON saved to: {args.output_json}")
+    out_json = resolve_hellaswag_output_json(args.output_json, args.checkpoint)
+    atomic_save_json(out_json, summary.to_dict())
+    print(f"Summary JSON saved to: {out_json}")
 
     if args.output_jsonl:
         out_jsonl = Path(args.output_jsonl)
