@@ -20,7 +20,7 @@ cd basikGPT
 pip install -e ".[dev]"
 ```
 
-아키텍처와 토크나이저는 GPT-2와 같다. `transformers.AutoModelForCausalLM.from_pretrained`는 Hub 내보내기를 **로드한다**:
+아키텍처와 토크나이저는 GPT-2와 같다. FineWeb-Edu 체크포인트(ARC-Easy가 더 강함)는 **v1.0**, 5B 연속(LAMBADA는 오르고 ARC-Easy는 내린다)은 **v1.1**. 아래 예시는 v1.1을 로드한다. `transformers.AutoModelForCausalLM.from_pretrained`는 Hub 내보내기를 **로드한다**:
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -46,16 +46,16 @@ python scripts/generate.py --checkpoint runs/main_2p5b/step-00038147.pt --prompt
 
 제로샷 English LM suite(`english-lm-suite-v1`): 모든 행에 같은 split·프롬프트·채점. 토큰 수와 아키텍처는 **맞추지 않았다**. 전체 표: [`benchmarks/REPORT.md`](benchmarks/REPORT.md).
 
-| Model | size | HS | LAMBADA | PIQA | WG | ARC-E |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** |
-| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 |
-| openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 |
-| HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 |
-| EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 |
-| chance | | 25 | — | 50 | 50 | ~25 |
+| Model | size | HS | LAMBADA | PIQA | WG | ARC-E | Avg |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** | 40.77 |
+| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 | 40.58 |
+| openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 | 42.72 |
+| HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 | 52.91 |
+| EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 | 36.57 |
+| chance | | 25 | — | 50 | 50 | ~25 | — |
 
-WG는 acc_raw, 나머지 열은 스위트 primary metric. 이 프로토콜의 같은 크기 공개 디코더는 가깝고, 현대 135M 믹스는 더 높다. WinoGrande는 우연 수준. 방법과 전체 비교: [백서](docs/whitepaper.ko.md).
+WG는 acc_raw, 나머지 열은 스위트 primary metric. Avg는 그 다섯 값의 단순 평균. 이 프로토콜의 같은 크기 공개 디코더는 가깝고, 현대 135M 믹스는 더 높다. WinoGrande는 우연 수준. 방법과 전체 비교: [백서](docs/whitepaper.ko.md).
 
 v1.0 언어모델 지표(루프 안 val은 131,072 토큰, full val은 사후):
 
@@ -75,7 +75,22 @@ python scripts/evaluate_lm_suite.py --hf-model openai-community/gpt2
 
 ## Architecture
 
-GPT-2 인과 디코더: Pre-Norm, LayerNorm(ε = 1e-5), 학습된 절대 위치, 인과적 multi-head self-attention, GELU tanh 근사, Linear와 LayerNorm bias, tied embeddings. 상세: [백서 §4](docs/whitepaper.ko.md#4-모델).
+GPT-2 인과 디코더: Pre-Norm, LayerNorm(ε = 1e-5), 학습된 절대 위치, 인과적 multi-head self-attention, GELU tanh 근사, Linear와 LayerNorm bias, tied embeddings. 블록 내부: [백서 §4](docs/whitepaper.ko.md#4-모델).
+
+```mermaid
+flowchart TB
+  ids["input_ids (B, T)"]
+  pos["positions 0..T-1"]
+  wte["wte (B, T, C)"]
+  wpe["wpe (T, C)"]
+  addX["x = wte + wpe (B, T, C)"]
+  blocks["Block x 12"]
+  lnf["ln_f"]
+  head["lm_head tied to wte"]
+  ids --> wte --> addX
+  pos --> wpe --> addX
+  addX --> blocks --> lnf --> head
+```
 
 | | `gpt2_small` |
 | --- | --- |
@@ -103,11 +118,11 @@ v1.0은 FineWeb-Edu(`sample-10BT`). v1.1은 FineWeb 2.25B + OpenWebMath 0.25B로
 
 ```mermaid
 flowchart LR
-  raw[Hub_FineWeb]
-  shard[tokenize_uint16_shards]
-  train[train.py]
-  gen[generate.py]
-  raw --> shard --> train --> gen
+  doc[Hub_document]
+  enc["encode_ordinary + EOT"]
+  shard["uint16 npy shard"]
+  train["train.py T=1024"]
+  doc --> enc --> shard --> train
 ```
 
 믹스 표와 라이선스: [백서 §6](docs/whitepaper.ko.md#6-데이터).
@@ -177,6 +192,17 @@ pytest tests/ -q
 ## Contributing
 
 이슈와 pull request를 환영한다. 변경을 보내기 전에 `pytest tests/ -q`를 실행하라.
+
+## Citation
+
+```
+@software{basikgpt,
+  title = {basikGPT},
+  author = {basikGPT Contributors},
+  url = {https://github.com/project-iconik/basikGPT},
+  year = {2026}
+}
+```
 
 ## License
 

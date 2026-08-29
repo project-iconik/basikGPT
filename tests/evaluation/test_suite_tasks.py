@@ -88,6 +88,9 @@ def test_write_report_contains_protocol_and_scores(tmp_path: Path) -> None:
     assert "basikgpt-2p5b" in text
     assert "basikgpt-5b" in text
     assert "29.33%" in text
+    assert "| Avg |" in text
+    assert "45.07%" in text
+    assert "unweighted mean of the five primaries" in text
     assert "runs/main_2p5b/step-00038147.pt" in text
     assert "runs/cont_5b_mix/step-00076294.pt" in text
     assert "acc_norm" in text

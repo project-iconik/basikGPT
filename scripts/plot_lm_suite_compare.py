@@ -58,7 +58,7 @@ COLORS = (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Write grouped and HellaSwag-vs-size figures from english-lm-suite-v1."
+        description="Write grouped, HellaSwag-vs-size, and average figures from english-lm-suite-v1."
     )
     parser.add_argument(
         "--summary",
@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=str,
         default=str(DEFAULT_OUTPUT_DIR),
-        help="Directory for grouped.png and hellaswag_vs_size.png",
+        help="Directory for grouped.png, hellaswag_vs_size.png, and average.png",
     )
     return parser.parse_args()
 
@@ -115,6 +115,30 @@ def plot_grouped(models: dict[str, dict], output_path: Path) -> None:
     ax.axhline(25, color="#bbbbbb", linewidth=0.8, linestyle="--")
     ax.axhline(50, color="#bbbbbb", linewidth=0.8, linestyle=":")
     ax.legend(loc="upper left", ncol=2, frameon=False, fontsize=8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160)
+    plt.close(fig)
+
+
+def unweighted_average(model: dict) -> float:
+    return sum(primary_score(model["tasks"][task_id]) for task_id, _ in TASKS) / len(TASKS)
+
+
+def plot_average(models: dict[str, dict], output_path: Path) -> None:
+    labels = [DISPLAY_NAMES[model_id] for model_id in MODEL_ORDER]
+    averages = [unweighted_average(models[model_id]) for model_id in MODEL_ORDER]
+    x = np.arange(len(MODEL_ORDER))
+
+    fig, ax = plt.subplots(figsize=(10.4, 5.2))
+    ax.bar(x, averages, color=COLORS[: len(MODEL_ORDER)], edgecolor="none")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=25, ha="right")
+    ax.set_ylabel("Avg (%)")
+    ax.set_ylim(0, 80)
+    ax.set_title("english-lm-suite-v1 unweighted average")
+    ax.axhline(50, color="#bbbbbb", linewidth=0.8, linestyle=":")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     fig.tight_layout()
@@ -167,10 +191,13 @@ def main() -> None:
     models = load_models(summary_path)
     grouped_path = output_dir / "grouped.png"
     size_path = output_dir / "hellaswag_vs_size.png"
+    average_path = output_dir / "average.png"
     plot_grouped(models, grouped_path)
     plot_hellaswag_vs_size(models, size_path)
+    plot_average(models, average_path)
     print(f"wrote {grouped_path}")
     print(f"wrote {size_path}")
+    print(f"wrote {average_path}")
 
 
 if __name__ == "__main__":

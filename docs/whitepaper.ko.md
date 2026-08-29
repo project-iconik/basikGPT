@@ -5,7 +5,7 @@
 | | |
 | --- | --- |
 | Authors | basikGPT Contributors |
-| Document version | 1.0 |
+| Document version | 1.1 |
 | Date | 2026-08-29 |
 | Package | `basikgpt` 0.1.0 |
 | Production runs | `main_2p5b` (38,147 steps) → `cont_5b_mix` (76,294 steps) |
@@ -104,6 +104,56 @@ basikGPT-1은 다음 세 제약으로 처음부터 학습했다.
 
 **컨텍스트 길이.** 위치는 1024만 할당·학습한다. RoPE 표도, 쓰지 않는 긴 컨텍스트 예비도 없다.
 
+디코더 스택. 고유 파라미터 124,439,808. `tie_word_embeddings=true`. 학습 dropout 0.0.
+
+```mermaid
+flowchart TB
+  ids["input_ids (B, T)"]
+  pos["positions 0..T-1"]
+  wte["wte (B, T, C)"]
+  wpe["wpe (T, C)"]
+  addX["x = wte + wpe (B, T, C)"]
+  blocks["Block x 12"]
+  lnf["ln_f"]
+  head["lm_head tied to wte"]
+  ids --> wte --> addX
+  pos --> wpe --> addX
+  addX --> blocks --> lnf --> head
+```
+
+Pre-Norm 블록. 잔차 스트림은 정규화하지 않는다: `x = x + attn(ln_1(x))`, 이어서 `x = x + mlp(ln_2(x))`.
+
+```mermaid
+flowchart TB
+  xin["x (B, T, C)"]
+  ln1[ln_1]
+  attn[CausalSelfAttention]
+  add1["x = x + attn"]
+  ln2[ln_2]
+  mlp[MLP]
+  add2["x = x + mlp"]
+  xout["out (B, T, C)"]
+  xin --> ln1 --> attn --> add1
+  xin --> add1
+  add1 --> ln2 --> mlp --> add2
+  add1 --> add2
+  add2 --> xout
+```
+
+Attention 형상. 스케일 `1/sqrt(64)`. 인과적 multi-head. GQA가 아니다.
+
+```mermaid
+flowchart LR
+  x["x (B, T, C)"]
+  qkv["fused QKV (B, T, 3C)"]
+  split["Q K V (B, H, T, D)"]
+  scores["scores (B, H, T, T)"]
+  merge["merge (B, T, C)"]
+  x --> qkv --> split --> scores --> merge
+```
+
+텐서 기호 `B`, `T`, `C`, `H`, `D`, `V`는 [`docs/tensor_conventions.md`](tensor_conventions.md)에 정의한다.
+
 ---
 
 ## 5. 토크나이저
@@ -119,6 +169,15 @@ Hub 내보내기는 공식 GPT-2 토크나이저 파일을 `GPT2LMHeadModel` saf
 ## 6. 데이터
 
 Hub 스트림은 저장소 파이프라인(`scripts/prepare_fineweb_edu.py`, `scripts/prepare_hf_corpus.py`)과 토큰 예산을 쓴다. 문서는 토큰화한 뒤 목표 1,000,000 토큰의 **uint16** `.npy` 샤드로 팩하고 SHA-256 체크섬을 단다. train/validation 분할은 `sha256-hash-bucket-v1`(salt `basikgpt-fineweb-edu-v1`). 샤드는 순차 읽기(`--no-shuffle`)라 실행된 prefix를 재현할 수 있다.
+
+```mermaid
+flowchart LR
+  hub[Hub_stream]
+  enc["encode_ordinary + EOT 50256"]
+  shard["uint16 npy target 1e6"]
+  pack["packed T=1024 no-shuffle"]
+  hub --> enc --> shard --> pack
+```
 
 ### 6.1 v1.0 믹스 (`main_2p5b`)
 
@@ -147,6 +206,14 @@ v1.0은 2,500,000,000 토큰을 요청했고 실행은 **2,500,001,792**(+1,792 
 
 SmolLM `python-edu`를 10% 넣던 초안은 **실행하지 않았다**. v1.1에 코드 슬라이스는 없다.
 
+```mermaid
+flowchart LR
+  v10["v1.0 FineWeb-Edu 2.5B"]
+  v11["v1.1 FineWeb 2.25B + OpenWebMath 0.25B"]
+  life["lifetime 50 / 45 / 5"]
+  v10 --> v11 --> life
+```
+
 0.25B 수학 슬라이스는 수식이 미지의 분포가 되지 않게 하려는 것이다. 수학 모델을 주장할 양은 아니고, GSM8K는 평가 프로토콜에 없다.
 
 ---
@@ -156,6 +223,17 @@ SmolLM `python-edu`를 10% 넣던 초안은 **실행하지 않았다**. v1.1에 
 설정 동결: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json)(provisional). `scripts/train.py`는 그 JSON을 읽지 않는다. 프로덕션은 동등 CLI 플래그를 썼다. 정본 레시피는 Candidate A(`compile=false`, B=8, G=8).
 
 optimizer step당 토큰은 항상 `8 × 8 × 1024` = **65,536**.
+
+학습률 경로. v1.0: 2,000 스텝 워밍업 후 cosine 6e-4 → 6e-5. v1.1은 step 38,147에서 재개: 1,000 스텝 rewarm 6e-5 → 3e-4, 이후 cosine으로 6e-5.
+
+```mermaid
+flowchart LR
+  w0["v1.0 warmup 2000 steps"]
+  c0["cosine 6e-4 to 6e-5"]
+  rw["v1.1 rewarm 1000 steps"]
+  c1["cosine 3e-4 to 6e-5"]
+  w0 --> c0 --> rw --> c1
+```
 
 ### 7.1 Stage v1.0
 
@@ -282,20 +360,22 @@ Edu val CE 3.32 → 3.47 상승은 예상된 분포 이동이다. v1.1에는 `ru
 
 체크포인트: v1.0 `runs/main_2p5b/step-00038147.pt`, v1.1 `runs/cont_5b_mix/step-00076294.pt`. 중간 100M / 500M / 1B는 이 스위트에 없다.
 
-| Model | Params | Corpus | HS acc_norm | LAMBADA | PIQA | WG | ARC-E |
-| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | FineWeb-Edu 2.5B | **29.40%** | **19.58%** | **61.37%** | **50.51%** | **43.01%** |
-| **basikGPT-1 v1.1** | 124M | Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | **28.75%** | **23.05%** | **61.75%** | **50.83%** | **38.51%** |
-| `openai-community/gpt2` | 124M | WebText | 30.37% | 30.93% | 62.57% | 51.62% | 38.13% |
-| SmolLM2-135M | 135M | SmolLM2 mix | 42.67% | 42.97% | 67.57% | 51.93% | 59.43% |
-| SmolLM2-360M | 362M | SmolLM2 mix | 55.23% | 53.25% | 71.71% | 54.14% | 66.75% |
-| Pythia-160M | 162M | The Pile | 29.26% | 11.57% | 58.32% | 49.49% | 34.22% |
-| Pythia-410M | 405M | The Pile | 39.18% | 47.33% | 67.68% | 51.14% | 45.12% |
-| Qwen2.5-0.5B | 494M | Qwen2.5 mix | 51.26% | 51.99% | 70.18% | 55.64% | 57.83% |
+| Model | Params | Corpus | HS acc_norm | LAMBADA | PIQA | WG | ARC-E | Avg |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **basikGPT-1 v1.0** | 124M | FineWeb-Edu 2.5B | **29.40%** | **19.58%** | **61.37%** | **50.51%** | **43.01%** | **40.77%** |
+| **basikGPT-1 v1.1** | 124M | Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | **28.75%** | **23.05%** | **61.75%** | **50.83%** | **38.51%** | **40.58%** |
+| `openai-community/gpt2` | 124M | WebText | 30.37% | 30.93% | 62.57% | 51.62% | 38.13% | 42.72% |
+| SmolLM2-135M | 135M | SmolLM2 mix | 42.67% | 42.97% | 67.57% | 51.93% | 59.43% | 52.91% |
+| SmolLM2-360M | 362M | SmolLM2 mix | 55.23% | 53.25% | 71.71% | 54.14% | 66.75% | 60.22% |
+| Pythia-160M | 162M | The Pile | 29.26% | 11.57% | 58.32% | 49.49% | 34.22% | 36.57% |
+| Pythia-410M | 405M | The Pile | 39.18% | 47.33% | 67.68% | 51.14% | 45.12% | 50.09% |
+| Qwen2.5-0.5B | 494M | Qwen2.5 mix | 51.26% | 51.99% | 70.18% | 55.64% | 57.83% | 57.38% |
 
-WG는 acc_raw, 나머지 열은 스위트 primary metric.
+WG는 acc_raw, 나머지 열은 스위트 primary metric. Avg는 그 다섯 값의 단순 평균.
 
 ![english-lm-suite-v1 grouped comparison](whitepaper/figures/grouped.png)
+
+![english-lm-suite-v1 unweighted average](whitepaper/figures/average.png)
 
 ![HellaSwag acc_norm vs parameter count](whitepaper/figures/hellaswag_vs_size.png)
 
@@ -318,6 +398,8 @@ WG는 acc_raw, 나머지 열은 스위트 primary metric.
 ### 용도
 
 basikGPT-1은 연구·교육·추가 사전학습·파인튜닝용 영어 **base** 체크포인트다. 챗봇이 아니고 instruction-tuned도 아니다. 개방형 프로덕션 채팅에는 안전하지 않다.
+
+FineWeb-Edu 체크포인트(ARC-Easy가 더 강함)는 **v1.0**, 5B 연속(LAMBADA는 오르고 ARC-Easy는 내린다)은 **v1.1**. 아래 예시는 v1.1을 로드한다.
 
 아키텍처와 토크나이저는 GPT-2 호환이다. `transformers.AutoModelForCausalLM.from_pretrained`는 Hub 내보내기를 **로드한다**:
 

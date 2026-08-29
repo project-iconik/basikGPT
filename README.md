@@ -20,7 +20,7 @@ cd basikGPT
 pip install -e ".[dev]"
 ```
 
-Architecture and tokenizer match GPT-2. `transformers.AutoModelForCausalLM.from_pretrained` **does** load the Hub export:
+Architecture and tokenizer match GPT-2. Use **v1.0** for the FineWeb-Edu checkpoint (stronger ARC-Easy). Use **v1.1** for the 5B continuation (higher LAMBADA, lower ARC-Easy). The snippet below loads v1.1. `transformers.AutoModelForCausalLM.from_pretrained` **does** load the Hub export:
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -46,16 +46,16 @@ Core model and training code depend only on `torch` and `numpy`.
 
 Zero-shot English LM suite (`english-lm-suite-v1`): same splits, prompts, and scoring for every row. Token counts and architectures are **not** matched. Full table: [`benchmarks/REPORT.md`](benchmarks/REPORT.md).
 
-| Model | size | HS | LAMBADA | PIQA | WG | ARC-E |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** |
-| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 |
-| openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 |
-| HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 |
-| EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 |
-| chance | | 25 | — | 50 | 50 | ~25 |
+| Model | size | HS | LAMBADA | PIQA | WG | ARC-E | Avg |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** | 40.77 |
+| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 | 40.58 |
+| openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 | 42.72 |
+| HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 | 52.91 |
+| EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 | 36.57 |
+| chance | | 25 | — | 50 | 50 | ~25 | — |
 
-WG is acc_raw; other columns are the suite primary metric. Same-size public decoders in this protocol are close; modern 135M mixes score higher. WinoGrande is chance-level. Methods and the full comparison: [whitepaper](docs/whitepaper.md).
+WG is acc_raw; other columns are the suite primary metric. Avg is the unweighted mean of those five primaries. Same-size public decoders in this protocol are close; modern 135M mixes score higher. WinoGrande is chance-level. Methods and the full comparison: [whitepaper](docs/whitepaper.md).
 
 v1.0 language-model metrics (in-loop val uses 131,072 tokens; full val is post-hoc):
 
@@ -75,7 +75,22 @@ python scripts/evaluate_lm_suite.py --hf-model openai-community/gpt2
 
 ## Architecture
 
-GPT-2 causal decoder: Pre-Norm, LayerNorm (ε = 1e-5), learned absolute positions, causal multi-head self-attention, GELU tanh approximation, biases on Linear and LayerNorm, tied embeddings. Details: [whitepaper §4](docs/whitepaper.md#4-model).
+GPT-2 causal decoder: Pre-Norm, LayerNorm (ε = 1e-5), learned absolute positions, causal multi-head self-attention, GELU tanh approximation, biases on Linear and LayerNorm, tied embeddings. Block internals: [whitepaper §4](docs/whitepaper.md#4-model).
+
+```mermaid
+flowchart TB
+  ids["input_ids (B, T)"]
+  pos["positions 0..T-1"]
+  wte["wte (B, T, C)"]
+  wpe["wpe (T, C)"]
+  addX["x = wte + wpe (B, T, C)"]
+  blocks["Block x 12"]
+  lnf["ln_f"]
+  head["lm_head tied to wte"]
+  ids --> wte --> addX
+  pos --> wpe --> addX
+  addX --> blocks --> lnf --> head
+```
 
 | | `gpt2_small` |
 | --- | --- |
@@ -103,11 +118,11 @@ v1.0 is FineWeb-Edu (`sample-10BT`). v1.1 continues on FineWeb 2.25B + OpenWebMa
 
 ```mermaid
 flowchart LR
-  raw[Hub_FineWeb]
-  shard[tokenize_uint16_shards]
-  train[train.py]
-  gen[generate.py]
-  raw --> shard --> train --> gen
+  doc[Hub_document]
+  enc["encode_ordinary + EOT"]
+  shard["uint16 npy shard"]
+  train["train.py T=1024"]
+  doc --> enc --> shard --> train
 ```
 
 Full mix tables and licenses: [whitepaper §6](docs/whitepaper.md#6-data).
@@ -177,6 +192,17 @@ pytest tests/ -q
 ## Contributing
 
 Issues and pull requests are welcome. Please run `pytest tests/ -q` before sending a change.
+
+## Citation
+
+```
+@software{basikgpt,
+  title = {basikGPT},
+  author = {basikGPT Contributors},
+  url = {https://github.com/project-iconik/basikGPT},
+  year = {2026}
+}
+```
 
 ## License
 

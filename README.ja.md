@@ -20,7 +20,7 @@ cd basikGPT
 pip install -e ".[dev]"
 ```
 
-アーキテクチャとトークナイザは GPT-2 互換である。`transformers.AutoModelForCausalLM.from_pretrained` は Hub 出力を **読み込める**:
+アーキテクチャとトークナイザは GPT-2 互換である。FineWeb-Edu チェックポイント（ARC-Easy が強い）は **v1.0**、5B 継続（LAMBADA は上がり ARC-Easy は下がる）は **v1.1**。下の例は v1.1 を読む。`transformers.AutoModelForCausalLM.from_pretrained` は Hub 出力を **読み込める**:
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -46,16 +46,16 @@ python scripts/generate.py --checkpoint runs/main_2p5b/step-00038147.pt --prompt
 
 ゼロショット English LM suite（`english-lm-suite-v1`）: 全行で同じ split・プロンプト・採点。トークン数とアーキテクチャは **揃えていない**。全表: [`benchmarks/REPORT.md`](benchmarks/REPORT.md)。
 
-| Model | size | HS | LAMBADA | PIQA | WG | ARC-E |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** |
-| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 |
-| openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 |
-| HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 |
-| EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 |
-| chance | | 25 | — | 50 | 50 | ~25 |
+| Model | size | HS | LAMBADA | PIQA | WG | ARC-E | Avg |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** | 40.77 |
+| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 | 40.58 |
+| openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 | 42.72 |
+| HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 | 52.91 |
+| EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 | 36.57 |
+| chance | | 25 | — | 50 | 50 | ~25 | — |
 
-WG は acc_raw、他列はスイートの primary metric。本プロトコルの同規模公開デコーダは近く、現代的な 135M ミックスは上。WinoGrande は偶然水準。手法と全比較: [ホワイトペーパー](docs/whitepaper.ja.md)。
+WG は acc_raw、他列はスイートの primary metric。Avg はその 5 個の単純平均。本プロトコルの同規模公開デコーダは近く、現代的な 135M ミックスは上。WinoGrande は偶然水準。手法と全比較: [ホワイトペーパー](docs/whitepaper.ja.md)。
 
 v1.0 言語モデル指標（ループ内 val は 131,072 トークン、full val は事後）:
 
@@ -75,7 +75,22 @@ python scripts/evaluate_lm_suite.py --hf-model openai-community/gpt2
 
 ## Architecture
 
-GPT-2 因果デコーダ: Pre-Norm、LayerNorm（ε = 1e-5）、学習済み絶対位置、因果的 multi-head self-attention、GELU tanh 近似、Linear と LayerNorm の bias、tied embeddings。詳細: [ホワイトペーパー §4](docs/whitepaper.ja.md#4-モデル)。
+GPT-2 因果デコーダ: Pre-Norm、LayerNorm（ε = 1e-5）、学習済み絶対位置、因果的 multi-head self-attention、GELU tanh 近似、Linear と LayerNorm の bias、tied embeddings。ブロック内部: [ホワイトペーパー §4](docs/whitepaper.ja.md#4-モデル)。
+
+```mermaid
+flowchart TB
+  ids["input_ids (B, T)"]
+  pos["positions 0..T-1"]
+  wte["wte (B, T, C)"]
+  wpe["wpe (T, C)"]
+  addX["x = wte + wpe (B, T, C)"]
+  blocks["Block x 12"]
+  lnf["ln_f"]
+  head["lm_head tied to wte"]
+  ids --> wte --> addX
+  pos --> wpe --> addX
+  addX --> blocks --> lnf --> head
+```
 
 | | `gpt2_small` |
 | --- | --- |
@@ -103,11 +118,11 @@ v1.0 は FineWeb-Edu（`sample-10BT`）。v1.1 は FineWeb 2.25B + OpenWebMath 0
 
 ```mermaid
 flowchart LR
-  raw[Hub_FineWeb]
-  shard[tokenize_uint16_shards]
-  train[train.py]
-  gen[generate.py]
-  raw --> shard --> train --> gen
+  doc[Hub_document]
+  enc["encode_ordinary + EOT"]
+  shard["uint16 npy shard"]
+  train["train.py T=1024"]
+  doc --> enc --> shard --> train
 ```
 
 ミックス表とライセンス: [ホワイトペーパー §6](docs/whitepaper.ja.md#6-データ)。
@@ -177,6 +192,17 @@ pytest tests/ -q
 ## Contributing
 
 Issue と pull request を歓迎する。変更を送る前に `pytest tests/ -q` を実行すること。
+
+## Citation
+
+```
+@software{basikgpt,
+  title = {basikGPT},
+  author = {basikGPT Contributors},
+  url = {https://github.com/project-iconik/basikGPT},
+  year = {2026}
+}
+```
 
 ## License
 

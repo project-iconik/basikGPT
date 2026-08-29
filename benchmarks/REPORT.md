@@ -75,16 +75,20 @@ are comparable as a protocol, not as matched-token perplexity.
 
 ## Results
 
-| Model | Params | Family | Corpus | HS acc_norm | HS acc_raw | LAMBADA | PIQA acc_norm | WG acc | ARC-E acc_norm |
-|---|---|---|---|---|---|---|---|---|---|
-| `basikgpt-2p5b` | 124M | GPT-2 Small (basikGPT) | FineWeb-Edu 2.5B tokens | 29.40% | 28.07% | 19.58% | 61.37% | 50.51% | 43.01% |
-| `basikgpt-5b` | 124M | GPT-2 Small (basikGPT) | FineWeb-Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | 28.75% | 27.95% | 23.05% | 61.75% | 50.83% | 38.51% |
-| `gpt2` | 124M | GPT-2 Small | WebText | 30.37% | 28.95% | 30.93% | 62.57% | 51.62% | 38.13% |
-| `SmolLM2-135M` | 135M | SmolLM2 | SmolLM2 (HuggingFaceTB) | 42.67% | 34.97% | 42.97% | 67.57% | 51.93% | 59.43% |
-| `SmolLM2-360M` | 360M | SmolLM2 | SmolLM2 (HuggingFaceTB) | 55.23% | 42.14% | 53.25% | 71.71% | 54.14% | 66.75% |
-| `pythia-160m` | 160M | Pythia | The Pile | 29.26% | 28.30% | 11.57% | 58.32% | 49.49% | 34.22% |
-| `pythia-410m` | 410M | Pythia | The Pile | 39.18% | 33.53% | 47.33% | 67.68% | 51.14% | 45.12% |
-| `Qwen2.5-0.5B` | 0.5B | Qwen2.5 | Qwen2.5 mix (Alibaba) | 51.26% | 40.09% | 51.99% | 70.18% | 55.64% | 57.83% |
+| Model | Params | Family | Corpus | HS acc_norm | HS acc_raw | LAMBADA | PIQA acc_norm | WG acc | ARC-E acc_norm | Avg |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `basikgpt-2p5b` | 124M | GPT-2 Small (basikGPT) | FineWeb-Edu 2.5B tokens | 29.40% | 28.07% | 19.58% | 61.37% | 50.51% | 43.01% | 40.77% |
+| `basikgpt-5b` | 124M | GPT-2 Small (basikGPT) | FineWeb-Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | 28.75% | 27.95% | 23.05% | 61.75% | 50.83% | 38.51% | 40.58% |
+| `gpt2` | 124M | GPT-2 Small | WebText | 30.37% | 28.95% | 30.93% | 62.57% | 51.62% | 38.13% | 42.72% |
+| `SmolLM2-135M` | 135M | SmolLM2 | SmolLM2 (HuggingFaceTB) | 42.67% | 34.97% | 42.97% | 67.57% | 51.93% | 59.43% | 52.91% |
+| `SmolLM2-360M` | 360M | SmolLM2 | SmolLM2 (HuggingFaceTB) | 55.23% | 42.14% | 53.25% | 71.71% | 54.14% | 66.75% | 60.22% |
+| `pythia-160m` | 160M | Pythia | The Pile | 29.26% | 28.30% | 11.57% | 58.32% | 49.49% | 34.22% | 36.57% |
+| `pythia-410m` | 410M | Pythia | The Pile | 39.18% | 33.53% | 47.33% | 67.68% | 51.14% | 45.12% | 50.09% |
+| `Qwen2.5-0.5B` | 0.5B | Qwen2.5 | Qwen2.5 mix (Alibaba) | 51.26% | 40.09% | 51.99% | 70.18% | 55.64% | 57.83% | 57.38% |
+
+Avg is the unweighted mean of the five primaries (HS acc_norm, LAMBADA, PIQA acc_norm, WG acc, ARC-E acc_norm). Token counts and architectures are not matched. WinoGrande sits near chance, so it pulls every 124M row toward 50.
+
+![english-lm-suite-v1 unweighted average](../docs/whitepaper/figures/average.png)
 
 Per-task JSON is written locally under `benchmarks/models/` (gitignored). Machine-readable rollup: `summary.json`.
 

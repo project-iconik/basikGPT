@@ -435,6 +435,20 @@ def _task_score(entry: dict[str, Any], task: str, key: str) -> Any:
     return rec.get(key)
 
 
+def _primary_average(entry: dict[str, Any]) -> float | None:
+    """Unweighted mean of the five suite primary metrics, or None if any is missing."""
+    values = (
+        _task_score(entry, "hellaswag", "acc_norm"),
+        _task_score(entry, "lambada_openai", "accuracy"),
+        _task_score(entry, "piqa", "acc_norm"),
+        _task_score(entry, "winogrande", "acc_raw"),
+        _task_score(entry, "arc_easy", "acc_norm"),
+    )
+    if any(value is None for value in values):
+        return None
+    return sum(float(value) for value in values) / 5.0
+
+
 def write_report(output_dir: Path, summary: dict[str, Any] | None = None) -> Path:
     """Writes the protocol body and comparison table to benchmarks/REPORT.md."""
     if summary is None:
@@ -456,9 +470,10 @@ def write_report(output_dir: Path, summary: dict[str, Any] | None = None) -> Pat
         rows.append(
             f"| `{e.get('id', mid)}` | {e.get('params_label', '')} | {e.get('family', '')} "
             f"| {e.get('corpus', '')} | {_fmt_pct(hs_norm)} | {_fmt_pct(hs_raw)} "
-            f"| {_fmt_pct(lambada)} | {_fmt_pct(piqa)} | {_fmt_pct(wg)} | {_fmt_pct(arc)} |"
+            f"| {_fmt_pct(lambada)} | {_fmt_pct(piqa)} | {_fmt_pct(wg)} | {_fmt_pct(arc)} "
+            f"| {_fmt_pct(_primary_average(e))} |"
         )
-    table = "\n".join(rows) if rows else "| *(no scores yet)* | | | | | | | | | |"
+    table = "\n".join(rows) if rows else "| *(no scores yet)* | | | | | | | | | | |"
 
     body = f"""# English LM suite (zero-shot)
 
@@ -537,9 +552,13 @@ are comparable as a protocol, not as matched-token perplexity.
 
 ## Results
 
-| Model | Params | Family | Corpus | HS acc_norm | HS acc_raw | LAMBADA | PIQA acc_norm | WG acc | ARC-E acc_norm |
-|---|---|---|---|---|---|---|---|---|---|
+| Model | Params | Family | Corpus | HS acc_norm | HS acc_raw | LAMBADA | PIQA acc_norm | WG acc | ARC-E acc_norm | Avg |
+|---|---|---|---|---|---|---|---|---|---|---|
 {table}
+
+Avg is the unweighted mean of the five primaries (HS acc_norm, LAMBADA, PIQA acc_norm, WG acc, ARC-E acc_norm). Token counts and architectures are not matched. WinoGrande sits near chance, so it pulls every 124M row toward 50.
+
+![english-lm-suite-v1 unweighted average](../docs/whitepaper/figures/average.png)
 
 Per-task JSON is written locally under `benchmarks/models/` (gitignored). Machine-readable rollup: `summary.json`.
 

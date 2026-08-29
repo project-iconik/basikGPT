@@ -5,7 +5,7 @@
 | | |
 | --- | --- |
 | Authors | basikGPT Contributors |
-| Document version | 1.0 |
+| Document version | 1.1 |
 | Date | 2026-08-29 |
 | Package | `basikgpt` 0.1.0 |
 | Production runs | `main_2p5b` (38,147 steps) → `cont_5b_mix` (76,294 steps) |
@@ -104,6 +104,56 @@ Preset `gpt2_small` in `src/basikgpt/config.py`. GPT-2 causal decoder: token emb
 
 **Context length.** Positions are allocated and trained only at 1024. There is no RoPE table and no unused longer-context reservation.
 
+Decoder stack. Unique parameters 124,439,808; `tie_word_embeddings=true`; training dropout 0.0.
+
+```mermaid
+flowchart TB
+  ids["input_ids (B, T)"]
+  pos["positions 0..T-1"]
+  wte["wte (B, T, C)"]
+  wpe["wpe (T, C)"]
+  addX["x = wte + wpe (B, T, C)"]
+  blocks["Block x 12"]
+  lnf["ln_f"]
+  head["lm_head tied to wte"]
+  ids --> wte --> addX
+  pos --> wpe --> addX
+  addX --> blocks --> lnf --> head
+```
+
+Pre-Norm block. Residual stream is un-normalized: `x = x + attn(ln_1(x))`, then `x = x + mlp(ln_2(x))`.
+
+```mermaid
+flowchart TB
+  xin["x (B, T, C)"]
+  ln1[ln_1]
+  attn[CausalSelfAttention]
+  add1["x = x + attn"]
+  ln2[ln_2]
+  mlp[MLP]
+  add2["x = x + mlp"]
+  xout["out (B, T, C)"]
+  xin --> ln1 --> attn --> add1
+  xin --> add1
+  add1 --> ln2 --> mlp --> add2
+  add1 --> add2
+  add2 --> xout
+```
+
+Attention shapes. Scale `1/sqrt(64)`. Causal multi-head, not GQA.
+
+```mermaid
+flowchart LR
+  x["x (B, T, C)"]
+  qkv["fused QKV (B, T, 3C)"]
+  split["Q K V (B, H, T, D)"]
+  scores["scores (B, H, T, T)"]
+  merge["merge (B, T, C)"]
+  x --> qkv --> split --> scores --> merge
+```
+
+Tensor symbols `B`, `T`, `C`, `H`, `D`, `V` are defined in [`docs/tensor_conventions.md`](tensor_conventions.md).
+
 ---
 
 ## 5. Tokenizer
@@ -119,6 +169,15 @@ Hub exports ship the official GPT-2 tokenizer files next to the `GPT2LMHeadModel
 ## 6. Data
 
 Hub streams use the repository pipeline (`scripts/prepare_fineweb_edu.py`, `scripts/prepare_hf_corpus.py`) with a token budget. Documents are tokenized, packed into **uint16** `.npy` shards targeting 1,000,000 tokens each, and checksummed with SHA-256. The train/validation split is `sha256-hash-bucket-v1` (salt `basikgpt-fineweb-edu-v1`). Shards are read sequentially (`--no-shuffle`) so the executed prefix is reproducible.
+
+```mermaid
+flowchart LR
+  hub[Hub_stream]
+  enc["encode_ordinary + EOT 50256"]
+  shard["uint16 npy target 1e6"]
+  pack["packed T=1024 no-shuffle"]
+  hub --> enc --> shard --> pack
+```
 
 ### 6.1 v1.0 mix (`main_2p5b`)
 
@@ -147,6 +206,14 @@ Lifetime mix after this stage: FineWeb-Edu **50%** + FineWeb **45%** + OpenWebMa
 
 A draft plan that added SmolLM `python-edu` at 10% was **not** run. There is no code slice in v1.1.
 
+```mermaid
+flowchart LR
+  v10["v1.0 FineWeb-Edu 2.5B"]
+  v11["v1.1 FineWeb 2.25B + OpenWebMath 0.25B"]
+  life["lifetime 50 / 45 / 5"]
+  v10 --> v11 --> life
+```
+
 The 0.25B math slice exists so equations are not unseen. It is not enough data to claim a math model, and GSM8K is not in the evaluation protocol.
 
 ---
@@ -156,6 +223,17 @@ The 0.25B math slice exists so equations are not unseen. It is not enough data t
 Config freeze: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json) (provisional). `scripts/train.py` does not load that JSON; production used equivalent CLI flags. Candidate A (`compile=false`, B=8, G=8) is the canonical recipe.
 
 Tokens per optimizer step stay `8 × 8 × 1024` = **65,536**.
+
+Learning-rate path. v1.0: 2,000-step warmup, then cosine 6e-4 → 6e-5. v1.1 resumes at step 38,147: 1,000-step rewarm 6e-5 → 3e-4, then cosine to 6e-5.
+
+```mermaid
+flowchart LR
+  w0["v1.0 warmup 2000 steps"]
+  c0["cosine 6e-4 to 6e-5"]
+  rw["v1.1 rewarm 1000 steps"]
+  c1["cosine 3e-4 to 6e-5"]
+  w0 --> c0 --> rw --> c1
+```
 
 ### 7.1 Stage v1.0
 
@@ -282,20 +360,22 @@ Two forward paths share prompts and argmax rules: the GPT-2 path (basikGPT `.pt`
 
 Checkpoints: v1.0 `runs/main_2p5b/step-00038147.pt`; v1.1 `runs/cont_5b_mix/step-00076294.pt`. Intermediate 100M / 500M / 1B checkpoints are not in this suite.
 
-| Model | Params | Corpus | HS acc_norm | LAMBADA | PIQA | WG | ARC-E |
-| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | FineWeb-Edu 2.5B | **29.40%** | **19.58%** | **61.37%** | **50.51%** | **43.01%** |
-| **basikGPT-1 v1.1** | 124M | Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | **28.75%** | **23.05%** | **61.75%** | **50.83%** | **38.51%** |
-| `openai-community/gpt2` | 124M | WebText | 30.37% | 30.93% | 62.57% | 51.62% | 38.13% |
-| SmolLM2-135M | 135M | SmolLM2 mix | 42.67% | 42.97% | 67.57% | 51.93% | 59.43% |
-| SmolLM2-360M | 362M | SmolLM2 mix | 55.23% | 53.25% | 71.71% | 54.14% | 66.75% |
-| Pythia-160M | 162M | The Pile | 29.26% | 11.57% | 58.32% | 49.49% | 34.22% |
-| Pythia-410M | 405M | The Pile | 39.18% | 47.33% | 67.68% | 51.14% | 45.12% |
-| Qwen2.5-0.5B | 494M | Qwen2.5 mix | 51.26% | 51.99% | 70.18% | 55.64% | 57.83% |
+| Model | Params | Corpus | HS acc_norm | LAMBADA | PIQA | WG | ARC-E | Avg |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **basikGPT-1 v1.0** | 124M | FineWeb-Edu 2.5B | **29.40%** | **19.58%** | **61.37%** | **50.51%** | **43.01%** | **40.77%** |
+| **basikGPT-1 v1.1** | 124M | Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | **28.75%** | **23.05%** | **61.75%** | **50.83%** | **38.51%** | **40.58%** |
+| `openai-community/gpt2` | 124M | WebText | 30.37% | 30.93% | 62.57% | 51.62% | 38.13% | 42.72% |
+| SmolLM2-135M | 135M | SmolLM2 mix | 42.67% | 42.97% | 67.57% | 51.93% | 59.43% | 52.91% |
+| SmolLM2-360M | 362M | SmolLM2 mix | 55.23% | 53.25% | 71.71% | 54.14% | 66.75% | 60.22% |
+| Pythia-160M | 162M | The Pile | 29.26% | 11.57% | 58.32% | 49.49% | 34.22% | 36.57% |
+| Pythia-410M | 405M | The Pile | 39.18% | 47.33% | 67.68% | 51.14% | 45.12% | 50.09% |
+| Qwen2.5-0.5B | 494M | Qwen2.5 mix | 51.26% | 51.99% | 70.18% | 55.64% | 57.83% | 57.38% |
 
-WG is acc_raw; other columns are the suite primary metric.
+WG is acc_raw; other columns are the suite primary metric. Avg is the unweighted mean of those five primaries.
 
 ![english-lm-suite-v1 grouped comparison](whitepaper/figures/grouped.png)
+
+![english-lm-suite-v1 unweighted average](whitepaper/figures/average.png)
 
 ![HellaSwag acc_norm vs parameter count](whitepaper/figures/hellaswag_vs_size.png)
 
@@ -318,6 +398,8 @@ Published scores: [`benchmarks/REPORT.md`](../benchmarks/REPORT.md) and [`benchm
 ### Intended use
 
 basikGPT-1 is a pretrained English **base** checkpoint for research, education, further pretraining, and fine-tuning. It is not a chatbot and was not instruction-tuned. It is not safe for open-ended production chat.
+
+Use **v1.0** for the FineWeb-Edu checkpoint (stronger ARC-Easy). Use **v1.1** for the 5B continuation (higher LAMBADA, lower ARC-Easy). The snippet below loads v1.1.
 
 Architecture and tokenizer are GPT-2 compatible. `transformers.AutoModelForCausalLM.from_pretrained` **does** load the Hub export:
 

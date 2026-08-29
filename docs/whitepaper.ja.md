@@ -5,7 +5,7 @@
 | | |
 | --- | --- |
 | Authors | basikGPT Contributors |
-| Document version | 1.0 |
+| Document version | 1.1 |
 | Date | 2026-08-29 |
 | Package | `basikgpt` 0.1.0 |
 | Production runs | `main_2p5b` (38,147 steps) → `cont_5b_mix` (76,294 steps) |
@@ -104,6 +104,56 @@ basikGPT-1 は次の 3 制約のもとゼロから学習した。
 
 **文脈長。** 位置は 1024 のみ割り当て・学習する。RoPE 表も、未使用の長文脈予約もない。
 
+デコーダスタック。ユニークパラメータ 124,439,808。`tie_word_embeddings=true`。学習 dropout 0.0。
+
+```mermaid
+flowchart TB
+  ids["input_ids (B, T)"]
+  pos["positions 0..T-1"]
+  wte["wte (B, T, C)"]
+  wpe["wpe (T, C)"]
+  addX["x = wte + wpe (B, T, C)"]
+  blocks["Block x 12"]
+  lnf["ln_f"]
+  head["lm_head tied to wte"]
+  ids --> wte --> addX
+  pos --> wpe --> addX
+  addX --> blocks --> lnf --> head
+```
+
+Pre-Norm ブロック。残差ストリームは正規化しない: `x = x + attn(ln_1(x))`、続けて `x = x + mlp(ln_2(x))`。
+
+```mermaid
+flowchart TB
+  xin["x (B, T, C)"]
+  ln1[ln_1]
+  attn[CausalSelfAttention]
+  add1["x = x + attn"]
+  ln2[ln_2]
+  mlp[MLP]
+  add2["x = x + mlp"]
+  xout["out (B, T, C)"]
+  xin --> ln1 --> attn --> add1
+  xin --> add1
+  add1 --> ln2 --> mlp --> add2
+  add1 --> add2
+  add2 --> xout
+```
+
+Attention 形状。スケール `1/sqrt(64)`。因果的 multi-head。GQA ではない。
+
+```mermaid
+flowchart LR
+  x["x (B, T, C)"]
+  qkv["fused QKV (B, T, 3C)"]
+  split["Q K V (B, H, T, D)"]
+  scores["scores (B, H, T, T)"]
+  merge["merge (B, T, C)"]
+  x --> qkv --> split --> scores --> merge
+```
+
+テンソル記号 `B`、`T`、`C`、`H`、`D`、`V` は [`docs/tensor_conventions.md`](tensor_conventions.md) で定義する。
+
 ---
 
 ## 5. トークナイザ
@@ -119,6 +169,15 @@ Hub 出力は公式 GPT-2 トークナイザファイルを `GPT2LMHeadModel` sa
 ## 6. データ
 
 Hub ストリームはリポジトリパイプライン（`scripts/prepare_fineweb_edu.py`、`scripts/prepare_hf_corpus.py`）とトークン予算を使う。文書はトークン化し、目標 1,000,000 トークンの **uint16** `.npy` シャードにパックし、SHA-256 でチェックサムする。train/validation 分割は `sha256-hash-bucket-v1`（salt `basikgpt-fineweb-edu-v1`）。シャードは逐次読み（`--no-shuffle`）なので実行プレフィックスは再現できる。
+
+```mermaid
+flowchart LR
+  hub[Hub_stream]
+  enc["encode_ordinary + EOT 50256"]
+  shard["uint16 npy target 1e6"]
+  pack["packed T=1024 no-shuffle"]
+  hub --> enc --> shard --> pack
+```
 
 ### 6.1 v1.0 ミックス (`main_2p5b`)
 
@@ -147,6 +206,14 @@ v1.0 は 2,500,000,000 トークンを要求し、実行は **2,500,001,792**（
 
 SmolLM `python-edu` を 10% 入れる草案は **実行していない**。v1.1 にコード切片はない。
 
+```mermaid
+flowchart LR
+  v10["v1.0 FineWeb-Edu 2.5B"]
+  v11["v1.1 FineWeb 2.25B + OpenWebMath 0.25B"]
+  life["lifetime 50 / 45 / 5"]
+  v10 --> v11 --> life
+```
+
 0.25B の数学切片は数式が未知分布にならないためである。数学モデルを主張できる量ではなく、GSM8K は評価プロトコルにない。
 
 ---
@@ -156,6 +223,17 @@ SmolLM `python-edu` を 10% 入れる草案は **実行していない**。v1.1 
 設定凍結: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json)（provisional）。`scripts/train.py` はその JSON を読まない。本番は同等 CLI フラグを使った。正典レシピは Candidate A（`compile=false`、B=8、G=8）。
 
 optimizer step あたりトークンは常に `8 × 8 × 1024` = **65,536**。
+
+学習率の経路。v1.0: 2,000 ステップ warmup のあと cosine 6e-4 → 6e-5。v1.1 は step 38,147 から再開: 1,000 ステップ rewarm 6e-5 → 3e-4、その後 cosine で 6e-5。
+
+```mermaid
+flowchart LR
+  w0["v1.0 warmup 2000 steps"]
+  c0["cosine 6e-4 to 6e-5"]
+  rw["v1.1 rewarm 1000 steps"]
+  c1["cosine 3e-4 to 6e-5"]
+  w0 --> c0 --> rw --> c1
+```
 
 ### 7.1 Stage v1.0
 
@@ -282,20 +360,22 @@ Edu val CE の 3.32 → 3.47 上昇は想定された分布シフトである。
 
 チェックポイント: v1.0 `runs/main_2p5b/step-00038147.pt`、v1.1 `runs/cont_5b_mix/step-00076294.pt`。中間 100M / 500M / 1B はこのスイートにない。
 
-| Model | Params | Corpus | HS acc_norm | LAMBADA | PIQA | WG | ARC-E |
-| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | FineWeb-Edu 2.5B | **29.40%** | **19.58%** | **61.37%** | **50.51%** | **43.01%** |
-| **basikGPT-1 v1.1** | 124M | Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | **28.75%** | **23.05%** | **61.75%** | **50.83%** | **38.51%** |
-| `openai-community/gpt2` | 124M | WebText | 30.37% | 30.93% | 62.57% | 51.62% | 38.13% |
-| SmolLM2-135M | 135M | SmolLM2 mix | 42.67% | 42.97% | 67.57% | 51.93% | 59.43% |
-| SmolLM2-360M | 362M | SmolLM2 mix | 55.23% | 53.25% | 71.71% | 54.14% | 66.75% |
-| Pythia-160M | 162M | The Pile | 29.26% | 11.57% | 58.32% | 49.49% | 34.22% |
-| Pythia-410M | 405M | The Pile | 39.18% | 47.33% | 67.68% | 51.14% | 45.12% |
-| Qwen2.5-0.5B | 494M | Qwen2.5 mix | 51.26% | 51.99% | 70.18% | 55.64% | 57.83% |
+| Model | Params | Corpus | HS acc_norm | LAMBADA | PIQA | WG | ARC-E | Avg |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **basikGPT-1 v1.0** | 124M | FineWeb-Edu 2.5B | **29.40%** | **19.58%** | **61.37%** | **50.51%** | **43.01%** | **40.77%** |
+| **basikGPT-1 v1.1** | 124M | Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | **28.75%** | **23.05%** | **61.75%** | **50.83%** | **38.51%** | **40.58%** |
+| `openai-community/gpt2` | 124M | WebText | 30.37% | 30.93% | 62.57% | 51.62% | 38.13% | 42.72% |
+| SmolLM2-135M | 135M | SmolLM2 mix | 42.67% | 42.97% | 67.57% | 51.93% | 59.43% | 52.91% |
+| SmolLM2-360M | 362M | SmolLM2 mix | 55.23% | 53.25% | 71.71% | 54.14% | 66.75% | 60.22% |
+| Pythia-160M | 162M | The Pile | 29.26% | 11.57% | 58.32% | 49.49% | 34.22% | 36.57% |
+| Pythia-410M | 405M | The Pile | 39.18% | 47.33% | 67.68% | 51.14% | 45.12% | 50.09% |
+| Qwen2.5-0.5B | 494M | Qwen2.5 mix | 51.26% | 51.99% | 70.18% | 55.64% | 57.83% | 57.38% |
 
-WG は acc_raw、他列はスイートの primary metric。
+WG は acc_raw、他列はスイートの primary metric。Avg はその 5 個の単純平均。
 
 ![english-lm-suite-v1 grouped comparison](whitepaper/figures/grouped.png)
+
+![english-lm-suite-v1 unweighted average](whitepaper/figures/average.png)
 
 ![HellaSwag acc_norm vs parameter count](whitepaper/figures/hellaswag_vs_size.png)
 
@@ -318,6 +398,8 @@ WG は acc_raw、他列はスイートの primary metric。
 ### 想定用途
 
 basikGPT-1 は研究・教育・追加事前学習・ファインチューニング向けの英語 **base** チェックポイントである。チャットボットではなく、instruction-tuned でもない。開放的な本番チャットには安全ではない。
+
+FineWeb-Edu チェックポイント（ARC-Easy が強い）は **v1.0**、5B 継続（LAMBADA は上がり ARC-Easy は下がる）は **v1.1**。下の例は v1.1 を読む。
 
 アーキテクチャとトークナイザは GPT-2 互換である。`transformers.AutoModelForCausalLM.from_pretrained` は Hub 出力を **読み込める**:
 
