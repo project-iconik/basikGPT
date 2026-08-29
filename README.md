@@ -1,160 +1,183 @@
 # basikGPT
 
-> **Educational, Reproducible, and Open-Source GPT-2 Small Pretraining from Scratch in PyTorch**
+**English** · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-`basikGPT` is an educational project aimed at building, training, and scaling a decoder-only Transformer from the ground up. The code is crafted to be thoroughly reverse-engineered, read line-by-line, reviewed, and studied by engineers learning LLM architecture and pretraining mechanics.
+basikGPT is a **pretrained GPT-2 Small decoder-only Transformer** (124,439,808 unique parameters) plus the PyTorch code that trained it. It is a **base** checkpoint, not an instruction-tuned chatbot.
 
----
+- Weights: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0) (2.5B tokens), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1) (5B tokens)
+- Whitepaper: [`docs/whitepaper.md`](docs/whitepaper.md) ([JA](docs/whitepaper.ja.md), [KO](docs/whitepaper.ko.md))
+- English LM suite: [`benchmarks/REPORT.md`](benchmarks/REPORT.md)
 
-## Engineering Philosophy & Priorities
+Production run `main_2p5b`: 38,147 steps, **2,500,001,792** tokens (~20.09 tokens/parameter), trained at sequence length **1024**. Continuation `cont_5b_mix` resumes that checkpoint to lifetime **5,000,003,584** tokens (step 76,294) on FineWeb 2.25B + OpenWebMath 0.25B.
 
-In every line of code, we enforce the following hierarchy:
+## Quick start
 
-$$\text{Correctness} > \text{Readability} > \text{Verifiability} > \text{Reproducibility} > \text{Performance Optimization} > \text{Code Conciseness}$$
-
-- **No Premature Abstraction**: We avoid speculative base classes or deep inheritance hierarchies.
-- **Traceable Tensor Operations**: Every shape transformation is explicitly annotated and documented.
-- **Dual Attention Backends**: An explicit `eager` implementation for learning and verification alongside an optimized `sdpa` path for fast pretraining.
-- **Step-by-Step Milestones**: Development is divided into 16 strict milestones (Milestone 0 to 15) to guarantee correctness at every stage.
-
----
-
-## GPT-2 Small Canonical Architecture
-
-The canonical architecture accurately reproduces the 124M-parameter GPT-2 Small configuration:
-
-| Hyperparameter | Value | Description |
-|---|---|---|
-| `vocab_size` | `50,257` | GPT-2 standard vocabulary size |
-| `context_length` | `1,024` | Maximum context sequence length |
-| `n_layers` | `12` | Number of Transformer decoder blocks |
-| `n_heads` | `12` | Number of attention heads |
-| `d_model` | `768` | Model embedding / hidden dimension |
-| `head_dim` | `64` | Dimension per head ($d_{\text{model}} / n_{\text{heads}}$) |
-| `d_ff` | `3,072` | Feed-forward intermediate dimension ($4 \times d_{\text{model}}$) |
-| `normalization` | `LayerNorm` | Pre-norm configuration ($\epsilon = 10^{-5}$) |
-| `activation` | `GELU` | GPT-2 compatible GELU (tanh approximation) |
-| `position_encoding` | `Learned` | Absolute learned positional embeddings |
-| `weight_tying` | `True` | Token embedding weight tied to LM Head weight |
-| `bias` | `True` | Biases included in Linear and LayerNorm layers |
-
----
-
-## Repository Structure
-
-```text
-basikGPT/
-├── pyproject.toml                  # Build system, dependencies, and test configuration
-├── LICENSE                         # Apache-2.0 License
-├── README.md                       # Project overview & quickstart
-├── AGENTS.md                       # AI agent master guidelines and invariant specifications
-│
-├── src/basikgpt/
-│   ├── config.py                   # GPTConfig dataclass, validation, and size presets
-│   ├── model/                      # Attention, MLP, Block, full GPT assembly
-│   ├── conversion/                 # HuggingFace GPT-2 checkpoint conversion
-│   ├── data/                       # Tokenizer, sharding, FineWeb-Edu pipeline
-│   ├── training/                   # Optimizer, scheduler, Trainer, checkpoints
-│   ├── generation/                 # Sampling and KV-cache decoding
-│   └── evaluation/                 # Validation loss / perplexity and HellaSwag
-│
-├── scripts/                        # CLI entrypoints (train, generate, evaluate, parity)
-├── tests/                          # Unit and integration tests
-└── docs/                           # Tensor conventions, recipe audit, pilot protocol
-```
-
----
-
-## Quickstart & Development
-
-### 1. Installation
-
-Requires Python $\ge 3.12$ and PyTorch $\ge 2.1.0$.
+Python 3.12+ and PyTorch 2.1+. For CUDA, install PyTorch from [pytorch.org](https://pytorch.org/get-started/locally/) first.
 
 ```bash
-# Clone the repository
 git clone https://github.com/project-iconik/basikGPT.git
 cd basikGPT
-
-# Install in editable mode with development dependencies
 pip install -e ".[dev]"
 ```
 
-Core model and training code depend only on `torch` and `numpy`. Tokenization and FineWeb download extras (`tiktoken`, `datasets`) are installed via `.[data]` or `.[dev]`.
-
-### 2. Prepare Smoke Data
-
-Token shards and `runs/` artifacts are gitignored. A fresh clone does **not** include `data/fineweb-edu-smoke`, so `scripts/train.py` will fail until shards exist.
-
-```bash
-# Small FineWeb-Edu smoke set (train/val uint16 shards + manifest.json)
-python scripts/prepare_fineweb_edu.py --output-dir data/fineweb-edu-smoke
-```
-
-### 3. Running Unit Tests
-
-```bash
-pytest
-```
-
-### 4. Train a Tiny CPU Smoke Run
-
-```bash
-python scripts/train.py --model-preset tiny --max-steps 20 --device cpu
-```
-
-### 5. Basic Configuration Usage
+Architecture and tokenizer match GPT-2. `transformers.AutoModelForCausalLM.from_pretrained` **does** load the Hub export:
 
 ```python
-from basikgpt import GPTConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Instantiate canonical GPT-2 Small configuration
-config = GPTConfig.gpt2_small()
-
-print(f"Model dimension: {config.d_model}")
-print(f"Attention heads: {config.n_heads}")
-print(f"Head dimension: {config.head_dim}")
-print(f"Analytical parameter count (tied): {config.num_total_parameters():,}")
-# Output: Analytical parameter count (tied): 124,439,808
+tok = AutoTokenizer.from_pretrained("project-iconik/basikGPT-1-v1.1")
+model = AutoModelForCausalLM.from_pretrained("project-iconik/basikGPT-1-v1.1")
 ```
 
-`GPTConfig.dropout` defaults to `0.1` to match GPT-2 / HuggingFace. Pretraining CLIs (`scripts/train.py`, `scripts/run_pilot.py`) set `dropout=0.0` as a modernized training recipe.
+Native `.pt` checkpoints load through the `basikgpt` package. `scripts/generate.py` takes a local checkpoint (or `--hf-reference` for official `openai-community/gpt2`), not a Hub id.
 
----
+```bash
+python scripts/generate.py --checkpoint runs/main_2p5b/step-00038147.pt --prompt "The history of artificial intelligence"
+```
 
-## Milestone Roadmap
+| Extra | Install | Use |
+| --- | --- | --- |
+| `data` | `pip install -e ".[data]"` | tiktoken, FineWeb ingest (`datasets`, `pyarrow`) |
+| `dev` | `pip install -e ".[dev]"` | tests, Hub export/load, plus `data` |
 
-Status is tracked against the canonical numbering in `AGENTS.md`.
+Core model and training code depend only on `torch` and `numpy`.
 
-- [x] **Milestone 0**: Repository Foundation (Packaging, `GPTConfig`, validation, tests, docs)
-- [x] **Milestone 1**: Eager Causal Self-Attention (pure PyTorch tensor ops)
-- [x] **Milestone 2**: SDPA Backend & Numerical Parity Tests
-- [x] **Milestone 3**: GPT-2 Components (MLP, Block, LayerNorm, Embeddings)
-- [x] **Milestone 4**: Complete GPT-2 Small Assembly & Verification
-- [x] **Milestone 5**: Reference GPT-2 Checkpoint Parity (Logits Match)
-- [x] **Milestone 6**: English FineWeb Streaming & Token Pipeline
-- [x] **Milestone 7**: Pretraining Engine (AdamW, Cosine Warmup, BF16)
-- [ ] **Milestone 8**: Training Validation (1M $\to$ 10M $\to$ 100M $\to$ 500M tokens) — *partial: CPU Stage A/B pilots only*
-- [ ] **Milestone 9**: Performance Benchmarking & Engineering — *partial: CPU tiny benchmark only*
-- [x] **Milestone 10**: Canonical Pretraining (~2.5B FineWeb tokens)
-- [ ] **Milestone 11**: Evaluation & Perplexity Analysis — *partial: evaluators implemented; trained-model eval pending*
-- [ ] **Milestone 12**: Scaling Experiments
-- [ ] **Milestone 13**: Distributed Training (DDP $\to$ FSDP)
-- [ ] **Milestone 14**: 30B-ready Architectural Validation
-- [ ] **Milestone 15**: Comprehensive Technical Whitepaper
+## Results
 
-Implemented outside the original numbered roadmap (used by later milestones): autoregressive generation with KV cache, a HellaSwag zero-shot evaluation engine, local CPU Stage A/B pilots, Milestone 14 RunPod GPU qualification (`docs/runpod.md`), Milestone 15 GPU performance engineering (`docs/performance.md`), Milestone 16 1M/10M configuration freeze (`docs/config_freeze.md`), and the 2.5B FineWeb-Edu main run (`docs/main_2p5b.md`).
+Zero-shot English LM suite (`english-lm-suite-v1`): same splits, prompts, and scoring for every row. Token counts and architectures are **not** matched. Full table: [`benchmarks/REPORT.md`](benchmarks/REPORT.md).
 
-On NVIDIA RTX PRO 4500 Blackwell, PyTorch 2.8.0+cu128, BF16, T=1024, `attention_backend=sdpa`:
+| Model | size | HS | LAMBADA | PIQA | WG | ARC-E |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** |
+| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 |
+| openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 |
+| HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 |
+| EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 |
+| chance | | 25 | — | 50 | 50 | ~25 |
 
-- Uncompiled B=1 G=1: ≈ 30.1k tokens/sec, peak allocated ≈ 2.58 GiB
-- Uncompiled B=16 G=1: ≈ 79.3k tokens/sec, peak allocated ≈ 16.5 GiB
-- `torch.compile` inductor `default` B=16 G=1: ≈ 87.2k tokens/sec, peak allocated ≈ 16.0 GiB (opt-in)
+WG is acc_raw; other columns are the suite primary metric. Same-size public decoders in this protocol are close; modern 135M mixes score higher. WinoGrande is chance-level. Methods and the full comparison: [whitepaper](docs/whitepaper.md).
 
-Provisional frozen single-GPU pretraining baseline (1M/10M FineWeb-Edu pilots; not an optimal claim): **uncompiled BF16, SDPA auto, B=8, T=1024, G=8, 65,536 tokens/step**. Config: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json). The 2.5B-token FineWeb-Edu main run completed on this recipe: 38,147 steps, 2,500,001,792 tokens, ≈ 8.18 GPU-hours, training-only ≈ 85.1k tokens/sec, peak allocated ≈ 9.52 GiB, full-val PPL 25.92, HellaSwag `acc_norm` 29.33%. Logs and eval JSON: [`runs/main_2p5b/`](runs/main_2p5b/). Write-up: [`docs/main_2p5b.md`](docs/main_2p5b.md). Checkpoints (`.pt`) are local-only and are not in git.
+v1.0 language-model metrics (in-loop val uses 131,072 tokens; full val is post-hoc):
 
----
+| | |
+| --- | --- |
+| Tokens | 2,500,001,792 |
+| Last train CE | 3.2830 |
+| Full val CE / PPL | 3.2548 / 25.9151 |
+| Wall time | 29,462.59 s (~8.18 GPU hours) |
+| Training-only tok/s | 85,076 |
+
+```bash
+pip install -e ".[dev]"
+python scripts/evaluate_lm_suite.py --checkpoint runs/main_2p5b/step-00038147.pt
+python scripts/evaluate_lm_suite.py --hf-model openai-community/gpt2
+```
+
+## Architecture
+
+GPT-2 causal decoder: Pre-Norm, LayerNorm (ε = 1e-5), learned absolute positions, causal multi-head self-attention, GELU tanh approximation, biases on Linear and LayerNorm, tied embeddings. Details: [whitepaper §4](docs/whitepaper.md#4-model).
+
+| | `gpt2_small` |
+| --- | --- |
+| Unique parameters | 124,439,808 |
+| `vocab_size` | 50,257 |
+| `d_model` | 768 |
+| `n_layers` | 12 |
+| `n_heads` | 12 |
+| `head_dim` | 64 |
+| `d_ff` | 3,072 |
+| `context_length` | 1,024 |
+| Training sequence length | **1024** |
+| `tie_word_embeddings` | true |
+| Training dropout | **0.0** (`GPTConfig` default is 0.1) |
+
+`GPTConfig` also defines `gpt2_medium`, `gpt2_large`, and `gpt2_xl`. Those are configuration only. This repository trains `gpt2_small`.
+
+## Tokenizer
+
+GPT-2 byte-level BPE via `tiktoken.get_encoding("gpt2")`. Vocabulary 50,257. End-of-text id 50,256. No custom tokenizer. Training ingest uses `encode_ordinary()` and appends one EOT per document. Hub exports ship the official GPT-2 tokenizer files. Details: [whitepaper §5](docs/whitepaper.md#5-tokenizer).
+
+## Data
+
+v1.0 is FineWeb-Edu (`sample-10BT`). v1.1 continues on FineWeb 2.25B + OpenWebMath 0.25B (lifetime mix: Edu 50% + FineWeb 45% + OpenWebMath 5%). Hub streams are packed into uint16 `.npy` shards. Raw dumps and shards live under local `data/` and are not in git.
+
+```mermaid
+flowchart LR
+  raw[Hub_FineWeb]
+  shard[tokenize_uint16_shards]
+  train[train.py]
+  gen[generate.py]
+  raw --> shard --> train --> gen
+```
+
+Full mix tables and licenses: [whitepaper §6](docs/whitepaper.md#6-data).
+
+## Reproduce
+
+### A. Use the published weights (default)
+
+See [Quick start](#quick-start). No packed corpus required. Inference does not need a 24 GB GPU.
+
+### B. Retrain the 2.5B FineWeb-Edu run
+
+Needs tens of GB of disk and a Hugging Face Hub stream. `scripts/train.py` does not load the freeze JSON; production used equivalent CLI flags.
+
+```bash
+python scripts/prepare_fineweb_edu.py \
+  --output data/fineweb-edu-2p5b \
+  --max-train-tokens 2500000000 \
+  --shard-token-target 1000000
+python scripts/train.py \
+  --model-preset gpt2_small --device cuda --precision bf16 \
+  --batch-size 8 --grad-accum-steps 8 \
+  --target-tokens 2500000000 \
+  --warmup-steps 2000 --lr 6e-4 --min-lr 6e-5 \
+  --eval-at-start --eval-tokens 131072 --eval-interval 1526 \
+  --log-interval 10 \
+  --checkpoint-steps 1526,7630,15259,38147 \
+  --no-shuffle --track-data-index \
+  --data-dir data/fineweb-edu-2p5b \
+  --output-dir runs/main_2p5b
+```
+
+Config [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json) records the frozen recipe (provisional, not an optimal claim). Measured peak CUDA allocated on the production run was **9,523.61 MiB**.
+
+Each `train.py` launch writes under `runs/<name>/`. Published methods and metrics are in the [whitepaper](docs/whitepaper.md). Step logs (`metrics.jsonl`) and shard manifests (`dataset.json`) are gitignored.
+
+### C. Tiny CPU smoke (experiments only)
+
+Not the production train set. Needs a smoke shard directory first.
+
+```bash
+python scripts/prepare_fineweb_edu.py --output data/fineweb-edu-smoke
+python scripts/train.py --model-preset tiny --max-steps 20 --device cpu --data-dir data/fineweb-edu-smoke
+```
+
+## Layout
+
+- `src/basikgpt/model` — GPT-2 backbone and causal LM
+- `src/basikgpt/data` — tokenizer, sharding, FineWeb pipeline
+- `src/basikgpt/training` — optimizer, scheduler, trainer, checkpoints
+- `src/basikgpt/generation` — KV-cache generation
+- `src/basikgpt/evaluation` — val CE/PPL and English LM suite
+- `src/basikgpt/conversion` — Hugging Face GPT-2 import/export
+- `scripts` — train, generate, evaluate, prepare, export
+- `configs` — frozen single-GPU JSON
+- `docs` — technical whitepaper (EN / JA / KO) and recipe notes
+- `benchmarks` — English LM suite protocol and scores
+- `runs` — published `run.json` / `summary.json` (checkpoints are local)
+
+## Tests
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -q
+```
+
+## Contributing
+
+Issues and pull requests are welcome. Please run `pytest tests/ -q` before sending a change.
 
 ## License
 
-This project is licensed under the [Apache-2.0 License](LICENSE).
+Code and exported weights are **Apache-2.0**. FineWeb / FineWeb-Edu remain **ODC-By 1.0**. OpenWebMath: see the Hub dataset card. Check each card before redistribution. Details: [whitepaper §11](docs/whitepaper.md#11-intended-use-limitations-and-licenses).

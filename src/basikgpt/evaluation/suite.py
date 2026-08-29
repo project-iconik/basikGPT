@@ -541,7 +541,7 @@ are comparable as a protocol, not as matched-token perplexity.
 |---|---|---|---|---|---|---|---|---|---|
 {table}
 
-Per-task JSON: `benchmarks/models/<id>/<task>.json`. Machine-readable rollup: `summary.json`.
+Per-task JSON is written locally under `benchmarks/models/` (gitignored). Machine-readable rollup: `summary.json`.
 
 ## How to reproduce
 

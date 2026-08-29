@@ -86,7 +86,7 @@ are comparable as a protocol, not as matched-token perplexity.
 | `pythia-410m` | 410M | Pythia | The Pile | 39.18% | 33.53% | 47.33% | 67.68% | 51.14% | 45.12% |
 | `Qwen2.5-0.5B` | 0.5B | Qwen2.5 | Qwen2.5 mix (Alibaba) | 51.26% | 40.09% | 51.99% | 70.18% | 55.64% | 57.83% |
 
-Per-task JSON: `benchmarks/models/<id>/<task>.json`. Machine-readable rollup: `summary.json`.
+Per-task JSON is written locally under `benchmarks/models/` (gitignored). Machine-readable rollup: `summary.json`.
 
 ## How to reproduce
 

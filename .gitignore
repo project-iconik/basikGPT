@@ -35,3 +35,10 @@ Thumbs.db
 /wandb/
 /runs/**/*.log
 /exports/
+
+# Local-only / generated (not published)
+AGENTS.md
+/runs/**/dataset.json
+/runs/**/metrics.jsonl
+/runs/m17_100m/
+/benchmarks/models/

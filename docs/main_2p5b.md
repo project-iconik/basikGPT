@@ -2,7 +2,7 @@
 
 This records the single-GPU 2.5B-token FineWeb-Edu pretraining run on the Milestone 16 frozen recipe. It is **not** an optimal-hyperparameter claim.
 
-Machine-readable artifacts (JSON / Markdown / `metrics.jsonl`): [`runs/main_2p5b/`](../runs/main_2p5b/). Copy-ready tables: [`WHITEPAPER.md`](../runs/main_2p5b/WHITEPAPER.md). 100M scale-test gate: [`runs/m17_100m/scale_test.json`](../runs/m17_100m/scale_test.json).
+Machine-readable artifacts (`run.json`, `summary.json`, evaluation JSON): [`runs/main_2p5b/`](../runs/main_2p5b/). Copy-ready tables: [`WHITEPAPER.md`](../runs/main_2p5b/WHITEPAPER.md). Step logs (`metrics.jsonl`) stay on the training machine and are not in git.
 
 Checkpoints (`.pt`, ~1.4 GiB each) stay on the training machine and are **not** in git.
 

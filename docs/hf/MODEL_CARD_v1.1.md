@@ -55,7 +55,7 @@ FineWeb / FineWeb-Edu: **ODC-By 1.0**. OpenWebMath: see the dataset card. Downst
 
 ## How it was trained
 
-Resumed from v1.0 (did not retrain from scratch). Continuation LR: rewarm 6e-5 → 3e-4 over 1000 steps relative to origin step 38,147, then cosine to 6e-5 at 5B. Same microbatch recipe as v1.0 (BF16, SDPA, 65,536 tokens/step). `--no-shuffle --track-data-index --reset-data-index` on first resume. Details: GitHub `runs/cont_5b_mix/` and `docs/english_lm_suite_analysis.md`.
+Resumed from v1.0 (did not retrain from scratch). Continuation LR: rewarm 6e-5 → 3e-4 over 1000 steps relative to origin step 38,147, then cosine to 6e-5 at 5B. Same microbatch recipe as v1.0 (BF16, SDPA, 65,536 tokens/step). `--no-shuffle --track-data-index --reset-data-index` on first resume. Details: GitHub `runs/cont_5b_mix/` and [`docs/whitepaper.md`](https://github.com/project-iconik/basikGPT/blob/master/docs/whitepaper.md).
 
 FineWeb-Edu validation CE rose during this stage (about 3.32 → 3.47). That is expected: the val set is still FineWeb-Edu while train leaves Edu.
 

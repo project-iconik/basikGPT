@@ -129,7 +129,7 @@ Measured on git `4ddcd7900d53aa92550bd20c32887434a838150d` (working tree dirty w
 
 Not in Milestone 14 scope:
 
-- [ ] **torch.compile**: see Milestone 15 (`docs/performance.md`)
+- [ ] **torch.compile**: see §7.3 below
 - [ ] **DDP / FSDP**: `NOT VALIDATED`
 - [ ] **2.5B-token main training**: `NOT EXECUTED`
 
@@ -141,7 +141,7 @@ Micro-batch $B$ is not the same as the token batch $B \times T \times G \times W
 
 ### 7.3. GPU Performance Candidates (Milestone 15) — same GPU / PyTorch 2.8.0
 
-Measured with synthetic timing (uncompiled vs one controlled change) plus short FineWeb-Edu compiled runs (~196K tokens). Not a hyperparameter freeze. Full tables: [`docs/performance.md`](performance.md).
+Measured with synthetic timing (uncompiled vs one controlled change) plus short FineWeb-Edu compiled runs (~196K tokens). Not a hyperparameter freeze. Numbers below are the published summary; detailed lab tables are not in git.
 
 Uncompiled BF16 T=1024 G=1: B=1 ≈ 30.1k tok/s; B=8 ≈ 75.2k; B=16 ≈ 79.3k. Gain flattens after B=8. AUTO SDPA matched FLASH_ATTENTION on B=8; MATH/eager ≈ 31k tok/s.
 
@@ -153,6 +153,6 @@ DDP / FSDP / 2.5B main training were not started.
 
 ### 7.4. Configuration Freeze (Milestone 16) — same GPU
 
-1M and 10M FineWeb-Edu pilots compared uncompiled `B=8 G=8` vs compiled `B=16 G=4` at **65,536 tokens/step**. Both stayed finite, validation declined overall, and process-level resume used sequential `data_sample_index`. Full tables: [`docs/config_freeze.md`](config_freeze.md).
+1M and 10M FineWeb-Edu pilots compared uncompiled `B=8 G=8` vs compiled `B=16 G=4` at **65,536 tokens/step**. Both stayed finite, validation declined overall, and process-level resume used sequential `data_sample_index`. Detailed A/B tables are not in git.
 
 Provisional canonical single-GPU config (not claimed optimal): BF16, SDPA auto, `compile=false`, `B=8`, `T=1024`, `G=8`, 65,536 tokens/step. Artifact: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json). 2.5B main training was not started.
