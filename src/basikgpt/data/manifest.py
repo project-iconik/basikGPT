@@ -19,6 +19,7 @@ def create_manifest(
     stats: dict[str, int],
     shards: list[dict[str, Any]],
     dataset_license: str = "ODC-By 1.0",
+    selection: str = "FineWeb-Edu upstream educational-quality filtering",
 ) -> dict[str, Any]:
     """Constructs a comprehensive manifest dictionary capturing provenance and metadata."""
     manifest = {
@@ -29,7 +30,7 @@ def create_manifest(
             "revision": dataset_revision,
             "language": "en",
             "license": dataset_license,
-            "selection": "FineWeb-Edu upstream educational-quality filtering",
+            "selection": selection,
         },
         "tokenizer": {
             "name": "tiktoken",

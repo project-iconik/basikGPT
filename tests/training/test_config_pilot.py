@@ -178,6 +178,55 @@ def test_data_sample_index_resume(tmp_path: Path) -> None:
     assert meta["extra_state"]["data_sample_index"] == 4
 
 
+def test_reset_data_sample_index_on_resume(tmp_path: Path) -> None:
+    """New-mix resume discards the checkpoint sample index and starts at 0."""
+    torch.manual_seed(0)
+    raw = torch.arange(64, dtype=torch.long).reshape(8, 8)
+    ds = TensorDataset(raw, raw)
+    cfg = TrainingConfig(
+        learning_rate=1e-3,
+        warmup_steps=0,
+        max_steps=2,
+        stop_at_step=1,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        eval_interval=10_000,
+        checkpoint_interval=1,
+        log_interval=1,
+        track_data_sample_index=True,
+        save_step_final=False,
+        output_dir=str(tmp_path / "first"),
+        seed=1337,
+    )
+    trainer = Trainer(_tiny_gpt(), cfg, DataLoader(ds, batch_size=2, shuffle=False), overwrite=True)
+    trainer.train()
+    ckpt = tmp_path / "first" / "step-00000001.pt"
+    resume_cfg = TrainingConfig(
+        learning_rate=1e-3,
+        warmup_steps=0,
+        max_steps=2,
+        batch_size=2,
+        gradient_accumulation_steps=1,
+        eval_interval=10_000,
+        checkpoint_interval=1,
+        log_interval=1,
+        track_data_sample_index=True,
+        save_step_final=False,
+        output_dir=str(tmp_path / "second"),
+        seed=1337,
+    )
+    resumed = Trainer(
+        _tiny_gpt(),
+        resume_cfg,
+        DataLoader(ds, batch_size=2, shuffle=False),
+        resume_from=ckpt,
+        reset_data_sample_index=True,
+    )
+    resumed.train(resume_from=ckpt)
+    assert resumed.global_step == 2
+    assert resumed.data_sample_index == 2
+
+
 def test_save_step_final_can_be_disabled(tmp_path: Path) -> None:
     torch.manual_seed(0)
     raw = torch.randint(0, 32, (4, 8), dtype=torch.long)

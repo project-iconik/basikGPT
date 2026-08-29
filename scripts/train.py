@@ -163,6 +163,17 @@ def parse_args() -> argparse.Namespace:
         help="Store data_sample_index in checkpoints and sequential-skip on resume",
     )
     parser.add_argument(
+        "--reset-data-index",
+        action="store_true",
+        help="On resume, start the data sample index at 0 (new mix; ignore checkpoint index)",
+    )
+    parser.add_argument(
+        "--schedule-origin-step",
+        type=int,
+        default=None,
+        help="Continuation LR origin. Warmup is relative to this step; cosine ends at max_steps.",
+    )
+    parser.add_argument(
         "--eval-at-start",
         action="store_true",
         help="Run validation before the first optimizer step",
@@ -289,6 +300,7 @@ def main() -> None:
         max_grad_norm=args.max_grad_norm,
         warmup_steps=args.warmup_steps,
         max_steps=max_steps,
+        schedule_origin_step=args.schedule_origin_step,
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum_steps,
         eval_interval=args.eval_interval,
@@ -313,6 +325,10 @@ def main() -> None:
     extra_metadata: dict = {}
     if plan is not None:
         extra_metadata["token_budget"] = plan.to_dict()
+    if args.reset_data_index:
+        extra_metadata["reset_data_sample_index"] = True
+    if args.schedule_origin_step is not None:
+        extra_metadata["schedule_origin_step"] = args.schedule_origin_step
 
     print("=" * 75)
     print("  basikGPT Pretraining")
@@ -362,6 +378,7 @@ def main() -> None:
         overwrite=args.overwrite,
         init_weights=args.init_weights,
         extra_metadata=extra_metadata or None,
+        reset_data_sample_index=args.reset_data_index,
     )
     trainer.train(resume_from=args.resume)
 

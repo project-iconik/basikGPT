@@ -29,6 +29,7 @@ class TrainingConfig:
     # Scheduling
     warmup_steps: int = 2000
     max_steps: int = 10000
+    schedule_origin_step: int | None = None
 
     # Batching & Accumulation
     batch_size: int = 4
@@ -77,6 +78,20 @@ class TrainingConfig:
             raise ValueError(f"max_steps must be positive, got {self.max_steps}")
         if self.warmup_steps > self.max_steps:
             raise ValueError(f"warmup_steps ({self.warmup_steps}) cannot exceed max_steps ({self.max_steps})")
+        if self.schedule_origin_step is not None:
+            if self.schedule_origin_step < 0:
+                raise ValueError(
+                    f"schedule_origin_step must be non-negative or None, got {self.schedule_origin_step}"
+                )
+            if self.schedule_origin_step >= self.max_steps:
+                raise ValueError(
+                    f"schedule_origin_step ({self.schedule_origin_step}) must be < max_steps ({self.max_steps})"
+                )
+            if self.schedule_origin_step + self.warmup_steps > self.max_steps:
+                raise ValueError(
+                    f"schedule_origin_step + warmup_steps "
+                    f"({self.schedule_origin_step} + {self.warmup_steps}) cannot exceed max_steps ({self.max_steps})"
+                )
         if self.batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {self.batch_size}")
         if self.gradient_accumulation_steps <= 0:

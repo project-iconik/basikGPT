@@ -88,3 +88,24 @@ def test_process_document_stream_skips_partial_documents(tmp_path: Path) -> None
     tokens = np.load(tmp_path / train_shards[0]["filename"])
     assert int(tokens[-1]) == tokenizer.eot_token_id
     assert tokenizer.eot_token_id in set(int(t) for t in tokens)
+
+
+def test_process_document_stream_text_field(tmp_path: Path) -> None:
+    """Documents can store text under a non-default field name."""
+    tokenizer = GPT2Tokenizer()
+
+    def docs():
+        yield {"id": "doc_a", "body": "short educational sentence about science."}
+
+    stats, shards = process_document_stream(
+        doc_stream=docs(),
+        output_dir=tmp_path,
+        tokenizer=tokenizer,
+        max_train_tokens=100,
+        max_validation_tokens=0,
+        shard_token_target=1000,
+        val_fraction=0.0,
+        text_field="body",
+    )
+    assert stats["train_tokens"] > 0
+    assert [s for s in shards if s["split"] == "train"]

@@ -1,0 +1,14 @@
+{
+  "task": "arc_easy",
+  "split": "test",
+  "num_examples": 2376,
+  "acc_raw": 0.6435185185185185,
+  "acc_norm": 0.5942760942760943,
+  "raw_correct": 1529,
+  "norm_correct": 1412,
+  "elapsed_seconds": 184.821881942451,
+  "examples_per_second": 12.855620638793344,
+  "metric_primary": "acc_norm",
+  "score": 0.5942760942760943,
+  "chance_note": "1 / number of choices (typically 4 \u2192 25%)"
+}

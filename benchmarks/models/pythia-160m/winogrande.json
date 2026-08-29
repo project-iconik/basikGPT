@@ -1,0 +1,14 @@
+{
+  "task": "winogrande",
+  "split": "validation",
+  "num_examples": 1267,
+  "acc_raw": 0.494869771112865,
+  "acc_norm": 0.49171270718232046,
+  "raw_correct": 627,
+  "norm_correct": 623,
+  "elapsed_seconds": 18.087975316680968,
+  "examples_per_second": 70.04653521566651,
+  "metric_primary": "acc_raw",
+  "score": 0.494869771112865,
+  "chance": 0.5
+}

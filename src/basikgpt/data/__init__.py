@@ -16,6 +16,9 @@ __all__ = [
     "load_manifest",
     "process_document_stream",
     "prepare_fineweb_edu",
+    "prepare_hf_corpus",
+    "combine_shard_directories",
+    "interleave_cycle",
 ]
 
 
@@ -29,8 +32,12 @@ def __getattr__(name: str) -> Any:
         from basikgpt.data import manifest as _manifest
 
         return getattr(_manifest, name)
-    if name in ("process_document_stream", "prepare_fineweb_edu"):
+    if name in ("process_document_stream", "prepare_fineweb_edu", "prepare_hf_corpus"):
         from basikgpt.data import pipeline as _pipeline
 
         return getattr(_pipeline, name)
+    if name in ("combine_shard_directories", "interleave_cycle"):
+        from basikgpt.data import combine as _combine
+
+        return getattr(_combine, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

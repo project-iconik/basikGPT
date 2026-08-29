@@ -8,23 +8,21 @@ from typing import Any, Iterable, Literal
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from basikgpt.data.tokenizer import GPT2Tokenizer
+from basikgpt.evaluation.multiple_choice import (
+    CandidateScore,
+    EncodeTokenizer,
+    fallback_token_id,
+    resolve_bos_token_id,
+    score_completion,
+)
 from basikgpt.training.reproducibility import get_git_metadata, get_system_metadata
 
 
 # =====================================================================
 # 1. Data Structures
 # =====================================================================
-
-@dataclass(frozen=True, slots=True)
-class CandidateScore:
-    """Scoring metrics for a single candidate completion."""
-    total_log_likelihood: float
-    mean_log_likelihood: float
-    token_count: int
-
 
 @dataclass(frozen=True, slots=True)
 class HellaSwagExample:
@@ -137,86 +135,13 @@ def format_hellaswag_context(
 
 
 # =====================================================================
-# 3. Log-Likelihood Completion Scoring
-# =====================================================================
-
-def score_completion(
-    model: nn.Module,
-    context_tokens: list[int],
-    completion_tokens: list[int],
-    device: torch.device = torch.device("cpu"),
-    max_context_length: int = 1024,
-) -> CandidateScore:
-    """Computes conditional completion-only log-likelihood given context tokens.
-
-    Autoregressive shift alignment:
-      tokens: [x_0, x_1, ..., x_{P-1}, x_P, ..., x_{T-1}]
-      where x_0..x_{P-1} are context tokens (length P)
-      and x_P..x_{T-1} are completion tokens (length M)
-      
-      Logits at position k-1 parameterize P(x_k | x_{<k}).
-      Therefore:
-        shift_logits = logits[:, P-1 : T-1, :]  (shape: 1, M, vocab_size)
-        shift_targets = tokens[:, P : T]        (shape: 1, M)
-    """
-    if not context_tokens:
-        raise ValueError("Context tokens list must contain at least 1 token.")
-
-    if not completion_tokens:
-        raise ValueError("Completion tokens list must not be empty.")
-
-    M = len(completion_tokens)
-    if M >= max_context_length:
-        raise ValueError(
-            f"Completion token length {M} exceeds maximum context length {max_context_length}."
-        )
-
-    # Left-truncate context tokens if sequence exceeds max_context_length
-    total_len = len(context_tokens) + M
-    if total_len > max_context_length:
-        keep_context_len = max(1, max_context_length - M)
-        context_tokens = context_tokens[-keep_context_len:]
-
-    full_sequence = context_tokens + completion_tokens
-    P = len(context_tokens)
-    T = len(full_sequence)
-
-    tokens = torch.tensor([full_sequence], dtype=torch.long, device=device)
-
-    model.eval()
-    with torch.inference_mode():
-        logits = model(tokens)  # (1, T, vocab_size)
-
-        # Extract shift alignment slices
-        shift_logits = logits[:, P - 1 : T - 1, :].contiguous()  # (1, M, V)
-        shift_targets = tokens[:, P : T].contiguous()            # (1, M)
-
-        # Numerically stable log_softmax
-        log_probs = F.log_softmax(shift_logits, dim=-1)  # (1, M, V)
-        target_log_probs = torch.gather(
-            log_probs,
-            dim=-1,
-            index=shift_targets.unsqueeze(-1),
-        ).squeeze(-1)  # (1, M)
-
-        total_ll = float(target_log_probs.sum().item())
-        mean_ll = float(target_log_probs.mean().item())
-
-    return CandidateScore(
-        total_log_likelihood=total_ll,
-        mean_log_likelihood=mean_ll,
-        token_count=M,
-    )
-
-
-# =====================================================================
 # 4. Single Example Evaluation
 # =====================================================================
 
 def evaluate_hellaswag_example(
     model: nn.Module,
     example: dict[str, Any] | HellaSwagExample,
-    tokenizer: GPT2Tokenizer,
+    tokenizer: EncodeTokenizer,
     device: torch.device = torch.device("cpu"),
     format_style: Literal["activity_ctx", "ctx_only"] = "activity_ctx",
     max_context_length: int = 1024,
@@ -249,8 +174,10 @@ def evaluate_hellaswag_example(
     # 2. Format and tokenize context
     context_str = format_hellaswag_context(example, format_style=format_style)
     context_tokens = tokenizer.encode(context_str)
+    pad_id = fallback_token_id(tokenizer)
     if not context_tokens:
-        context_tokens = [tokenizer.eot_token_id]
+        context_tokens = [pad_id]
+    bos_id = resolve_bos_token_id(tokenizer)
 
     # 3. Score each of the 4 candidate completions
     raw_scores: list[float] = []
@@ -261,7 +188,7 @@ def evaluate_hellaswag_example(
         # Prepend space to match GPT-2 BPE boundary merging invariant
         completion_tokens = tokenizer.encode(" " + ending)
         if not completion_tokens:
-            completion_tokens = [tokenizer.eot_token_id]
+            completion_tokens = [pad_id]
 
         score = score_completion(
             model=model,
@@ -269,6 +196,7 @@ def evaluate_hellaswag_example(
             completion_tokens=completion_tokens,
             device=device,
             max_context_length=max_context_length,
+            bos_token_id=bos_id,
         )
         raw_scores.append(score.total_log_likelihood)
         norm_scores.append(score.mean_log_likelihood)
@@ -297,7 +225,7 @@ def evaluate_hellaswag_example(
 def evaluate_hellaswag(
     model: nn.Module,
     dataset: Iterable[dict[str, Any]],
-    tokenizer: GPT2Tokenizer | None = None,
+    tokenizer: EncodeTokenizer | None = None,
     device: torch.device = torch.device("cpu"),
     max_examples: int | None = None,
     format_style: Literal["activity_ctx", "ctx_only"] = "activity_ctx",

@@ -65,11 +65,13 @@ class Trainer:
         overwrite: bool = False,
         init_weights: Path | str | None = None,
         extra_metadata: dict[str, Any] | None = None,
+        reset_data_sample_index: bool = False,
     ) -> None:
         self.config = config
         self.run_name = run_name or Path(config.output_dir).name
         self.output_dir = Path(config.output_dir)
         self.resume_from = resume_from
+        self.reset_data_sample_index = reset_data_sample_index
 
         # 1. Deterministic RNG initialization
         seed_everything(config.seed)
@@ -431,16 +433,24 @@ class Trainer:
             self.tokens_seen = meta.get("tokens_seen", 0)
             extra = meta.get("extra_state") or {}
             if self.config.track_data_sample_index:
-                saved_index = extra.get("data_sample_index")
-                if saved_index is None:
-                    saved_index = self.global_step * self.config.batch_size * self.config.gradient_accumulation_steps
-                self.data_sample_index = int(saved_index)
+                if self.reset_data_sample_index:
+                    self.data_sample_index = 0
+                else:
+                    saved_index = extra.get("data_sample_index")
+                    if saved_index is None:
+                        saved_index = (
+                            self.global_step
+                            * self.config.batch_size
+                            * self.config.gradient_accumulation_steps
+                        )
+                    self.data_sample_index = int(saved_index)
             self._prune_metrics_after_resume(self.global_step)
             print(
                 f"[Trainer] Resumed from {target_resume} at step {self.global_step}, "
                 f"tokens {self.tokens_seen:,}"
                 + (
                     f", data_sample_index {self.data_sample_index:,}"
+                    + (" (reset)" if self.reset_data_sample_index else "")
                     if self.config.track_data_sample_index
                     else ""
                 )
@@ -465,6 +475,8 @@ class Trainer:
         print(f"  Batch size:         {self.config.batch_size}")
         print(f"  Grad accumulation:  {self.config.gradient_accumulation_steps}")
         print(f"  Warmup steps:       {self.config.warmup_steps:,}")
+        if self.config.schedule_origin_step:
+            print(f"  Schedule origin:    {self.config.schedule_origin_step:,}")
         print(f"  Peak LR:            {self.config.learning_rate:.2e}")
         print(f"  Min LR:             {self.config.min_learning_rate:.2e}")
         print(f"  Output dir:         {self.output_dir}")

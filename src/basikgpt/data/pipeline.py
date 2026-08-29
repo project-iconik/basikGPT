@@ -25,11 +25,12 @@ def process_document_stream(
     shard_token_target: int = 1_000_000,
     val_fraction: float = 0.005,
     log_interval: int = 500,
+    text_field: str = "text",
 ) -> tuple[dict[str, int], list[dict[str, Any]]]:
     """Processes an iterable stream of document dicts into tokenized uint16 shards.
 
     Args:
-        doc_stream: Iterable yielding dicts with at least 'text' and optional 'id'/'url'.
+        doc_stream: Iterable yielding dicts with at least `text_field` and optional 'id'/'url'.
         output_dir: Directory where shards and manifest will be written.
         tokenizer: Initialized GPT2Tokenizer instance.
         max_train_tokens: Upper bound on total training tokens to collect.
@@ -37,6 +38,7 @@ def process_document_stream(
         shard_token_target: Target number of tokens per .npy shard.
         val_fraction: Fraction of document IDs to route to validation split.
         log_interval: Frequency (in documents seen) for progress output.
+        text_field: Document dict key that holds raw text.
 
     Returns:
         Tuple of (statistics_dict, list_of_all_completed_shards).
@@ -70,7 +72,7 @@ def process_document_stream(
             break
 
         docs_seen += 1
-        text = item.get("text", "")
+        text = item.get(text_field, "")
         if not text or not text.strip():
             docs_skipped += 1
             continue
@@ -149,6 +151,109 @@ def process_document_stream(
     return stats, all_shards
 
 
+def resolve_dataset_revision(dataset_repo: str, revision: str | None) -> str:
+    """Resolves a branch/tag/SHA to a pinned commit SHA via the Hugging Face Hub."""
+    requested = (revision or "main").strip()
+    hex_chars = set("0123456789abcdef")
+    if len(requested) >= 12 and all(ch in hex_chars for ch in requested.lower()):
+        return requested
+
+    from huggingface_hub import HfApi
+
+    info = HfApi().dataset_info(dataset_repo, revision=requested)
+    sha = getattr(info, "sha", None) or ""
+    if not sha:
+        raise RuntimeError(f"Could not resolve commit SHA for {dataset_repo}@{requested}")
+    return str(sha)
+
+
+def prepare_hf_corpus(
+    output_dir: str | Path,
+    dataset_repo: str,
+    dataset_config: str | None = None,
+    dataset_revision: str | None = "main",
+    max_train_tokens: int = 100_000,
+    max_validation_tokens: int = 0,
+    shard_token_target: int = 1_000_000,
+    val_fraction: float = 0.0,
+    overwrite: bool = False,
+    log_interval: int = 500,
+    text_field: str = "text",
+    dataset_license: str = "ODC-By 1.0",
+    selection: str = "HuggingFace streaming corpus",
+) -> dict[str, Any]:
+    """Streams a HuggingFace dataset, tokenizes with GPT-2 BPE, and writes uint16 shards."""
+    output_path = Path(output_dir)
+    if output_path.exists() and any(output_path.iterdir()):
+        if not overwrite:
+            raise FileExistsError(
+                f"Output directory '{output_path}' already exists and is not empty. "
+                f"Pass overwrite=True to overwrite."
+            )
+
+    from datasets import load_dataset
+    from basikgpt.data.tokenizer import GPT2Tokenizer
+
+    pinned_revision = resolve_dataset_revision(dataset_repo, dataset_revision)
+    config_name = dataset_config or ""
+
+    output_path.mkdir(parents=True, exist_ok=True)
+    tokenizer = GPT2Tokenizer()
+
+    print(
+        f"Loading streaming dataset: {dataset_repo} "
+        f"(config={config_name or 'default'}, rev={pinned_revision[:12]}...)"
+    )
+    if config_name:
+        ds = load_dataset(
+            dataset_repo,
+            config_name,
+            split="train",
+            streaming=True,
+            revision=pinned_revision,
+        )
+    else:
+        ds = load_dataset(
+            dataset_repo,
+            split="train",
+            streaming=True,
+            revision=pinned_revision,
+        )
+
+    stats, shards = process_document_stream(
+        doc_stream=ds,
+        output_dir=output_path,
+        tokenizer=tokenizer,
+        max_train_tokens=max_train_tokens,
+        max_validation_tokens=max_validation_tokens,
+        shard_token_target=shard_token_target,
+        val_fraction=val_fraction,
+        log_interval=log_interval,
+        text_field=text_field,
+    )
+
+    manifest = create_manifest(
+        dataset_repository=dataset_repo,
+        dataset_config=config_name,
+        dataset_revision=pinned_revision,
+        validation_fraction=val_fraction,
+        shard_token_target=shard_token_target,
+        stats=stats,
+        shards=shards,
+        dataset_license=dataset_license,
+        selection=selection,
+    )
+    manifest_file = output_path / "manifest.json"
+    save_manifest(manifest, manifest_file)
+
+    print(f"\n[Pipeline Complete] Manifest written to {manifest_file}")
+    print(f"  Train tokens: {stats['train_tokens']:,} across {len([s for s in shards if s['split'] == 'train'])} shard(s)")
+    print(f"  Val tokens:   {stats['validation_tokens']:,} across {len([s for s in shards if s['split'] == 'validation'])} shard(s)")
+    print(f"  Docs seen:    {stats['total_documents_seen']:,} (skipped {stats['skipped_documents']:,})")
+    print(f"  Pinned revision: {pinned_revision}")
+    return manifest
+
+
 def prepare_fineweb_edu(
     output_dir: str | Path,
     dataset_repo: str = "HuggingFaceFW/fineweb-edu",
@@ -162,54 +267,18 @@ def prepare_fineweb_edu(
     log_interval: int = 500,
 ) -> dict[str, Any]:
     """Prepares FineWeb-Edu tokenized binary shards and manifest from streaming dataset."""
-    output_path = Path(output_dir)
-    if output_path.exists() and any(output_path.iterdir()):
-        if not overwrite:
-            raise FileExistsError(
-                f"Output directory '{output_path}' already exists and is not empty. "
-                f"Pass overwrite=True to overwrite."
-            )
-
-    from datasets import load_dataset
-    from basikgpt.data.tokenizer import GPT2Tokenizer
-
-    output_path.mkdir(parents=True, exist_ok=True)
-    tokenizer = GPT2Tokenizer()
-
-    print(f"Loading streaming dataset: {dataset_repo} (config={dataset_config}, rev={dataset_revision[:8]}...)")
-    ds = load_dataset(
-        dataset_repo,
-        name=dataset_config,
-        split="train",
-        streaming=True,
-        revision=dataset_revision,
-    )
-
-    stats, shards = process_document_stream(
-        doc_stream=ds,
-        output_dir=output_path,
-        tokenizer=tokenizer,
+    return prepare_hf_corpus(
+        output_dir=output_dir,
+        dataset_repo=dataset_repo,
+        dataset_config=dataset_config,
+        dataset_revision=dataset_revision,
         max_train_tokens=max_train_tokens,
         max_validation_tokens=max_validation_tokens,
         shard_token_target=shard_token_target,
         val_fraction=val_fraction,
+        overwrite=overwrite,
         log_interval=log_interval,
+        text_field="text",
+        dataset_license="ODC-By 1.0",
+        selection="FineWeb-Edu upstream educational-quality filtering",
     )
-
-    manifest = create_manifest(
-        dataset_repository=dataset_repo,
-        dataset_config=dataset_config,
-        dataset_revision=dataset_revision,
-        validation_fraction=val_fraction,
-        shard_token_target=shard_token_target,
-        stats=stats,
-        shards=shards,
-    )
-    manifest_file = output_path / "manifest.json"
-    save_manifest(manifest, manifest_file)
-
-    print(f"\n[Pipeline Complete] Manifest written to {manifest_file}")
-    print(f"  Train tokens: {stats['train_tokens']:,} across {len([s for s in shards if s['split'] == 'train'])} shard(s)")
-    print(f"  Val tokens:   {stats['validation_tokens']:,} across {len([s for s in shards if s['split'] == 'validation'])} shard(s)")
-    print(f"  Docs seen:    {stats['total_documents_seen']:,} (skipped {stats['skipped_documents']:,})")
-    return manifest

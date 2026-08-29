@@ -1,0 +1,14 @@
+{
+  "task": "piqa",
+  "split": "validation",
+  "num_examples": 1838,
+  "acc_raw": 0.6773667029379761,
+  "acc_norm": 0.675734494015234,
+  "raw_correct": 1245,
+  "norm_correct": 1242,
+  "elapsed_seconds": 73.07813294511288,
+  "examples_per_second": 25.15116254243215,
+  "metric_primary": "acc_norm",
+  "score": 0.675734494015234,
+  "chance": 0.5
+}

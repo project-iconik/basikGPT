@@ -1,0 +1,11 @@
+{
+  "task": "lambada_openai",
+  "split": "test",
+  "num_examples": 5153,
+  "accuracy": 0.4296526295361925,
+  "correct": 2214,
+  "elapsed_seconds": 103.16329259518534,
+  "examples_per_second": 49.949937331105424,
+  "metric_primary": "accuracy",
+  "score": 0.4296526295361925
+}
