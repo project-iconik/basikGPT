@@ -2,7 +2,7 @@
 
 **English** · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-basikGPT is a **pretrained GPT-2 Small decoder-only Transformer** (124,439,808 unique parameters) plus the PyTorch code that trained it. It is a **base** checkpoint, not an instruction-tuned chatbot.
+basikGPT is a **pretrained GPT-2 Small decoder-only Transformer** (124,439,808 unique parameters) plus the PyTorch code that trained it. It is a **base** model.
 
 - Weights: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0) (2.5B tokens), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1) (5B tokens)
 - Whitepaper: [`docs/whitepaper.md`](docs/whitepaper.md) ([JA](docs/whitepaper.ja.md), [KO](docs/whitepaper.ko.md))
@@ -48,8 +48,8 @@ Zero-shot English LM suite (`english-lm-suite-v1`): same splits, prompts, and sc
 
 | Model | size | HS | LAMBADA | PIQA | WG | ARC-E | Avg |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** | 40.77 |
-| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 | 40.58 |
+| **v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** | 40.77 |
+| **v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 | 40.58 |
 | openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 | 42.72 |
 | HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 | 52.91 |
 | EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 | 36.57 |
@@ -110,7 +110,7 @@ flowchart TB
 
 ## Tokenizer
 
-GPT-2 byte-level BPE via `tiktoken.get_encoding("gpt2")`. Vocabulary 50,257. End-of-text id 50,256. No custom tokenizer. Training ingest uses `encode_ordinary()` and appends one EOT per document. Hub exports ship the official GPT-2 tokenizer files. Details: [whitepaper §5](docs/whitepaper.md#5-tokenizer).
+GPT-2 byte-level BPE via `tiktoken.get_encoding("gpt2")`. Vocabulary 50,257. End-of-text id 50,256. Training ingest uses `encode_ordinary()` and appends one EOT per document. Hub exports ship the official GPT-2 tokenizer files. Details: [whitepaper §5](docs/whitepaper.md#5-tokenizer).
 
 ## Data
 
@@ -131,7 +131,7 @@ Full mix tables and licenses: [whitepaper §6](docs/whitepaper.md#6-data).
 
 ### A. Use the published weights (default)
 
-See [Quick start](#quick-start). No packed corpus required. Inference does not need a 24 GB GPU.
+See [Quick start](#quick-start).
 
 ### B. Retrain the 2.5B FineWeb-Edu run
 
@@ -155,13 +155,13 @@ python scripts/train.py \
   --output-dir runs/main_2p5b
 ```
 
-Config [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json) records the frozen recipe (provisional, not an optimal claim). Measured peak CUDA allocated on the production run was **9,523.61 MiB**.
+Config [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json) records the frozen recipe (provisional). Measured peak CUDA allocated on the production run was **9,523.61 MiB**.
 
 Each `train.py` launch writes under `runs/<name>/`. Published methods and metrics are in the [whitepaper](docs/whitepaper.md). Step logs (`metrics.jsonl`) and shard manifests (`dataset.json`) are gitignored.
 
 ### C. Tiny CPU smoke (experiments only)
 
-Not the production train set. Needs a smoke shard directory first.
+Needs a smoke shard directory first.
 
 ```bash
 python scripts/prepare_fineweb_edu.py --output data/fineweb-edu-smoke

@@ -47,7 +47,7 @@ basikGPT-1은 PyTorch로 처음부터 학습한 **124,439,808** 파라미터 GPT
 
 가중치는 Hugging Face Hub의 `GPT2LMHeadModel` 내보내기다: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1).
 
-모델은 사전학습된 **base**이지 instruction-tuned 챗봇이 아니다. 비교표는 공유 프로토콜 베이스라인이며, 컴퓨트를 맞춘 뒤 GPT-2 Small을 이겼다는 주장이 아니다.
+모델은 사전학습된 **base**다. 비교표는 공유 프로토콜 베이스라인이다.
 
 ---
 
@@ -61,19 +61,19 @@ basikGPT-1은 다음 세 제약으로 처음부터 학습했다.
 - **1단계는 Chinchilla 근처의 고유 데이터.** Hoffmann 등은 대략 20 tokens/parameter를 제안한다. v1.0은 124.4M 고유 파라미터에 FineWeb-Edu(`sample-10BT`)를 한 번만 본 2.50B 토큰을 썼다.
 - **단일 24–32 GB GPU.** 시퀀스 길이 1024, micro-batch 8, gradient accumulation 8, BF16, SDPA로 실측 할당은 약 9.5 GiB다.
 
-2단계는 문서화된 연속학습이지, 두 번째 처음부터 학습이 아니다. SmolLM `python-edu`를 넣던 초기 믹스안은 **실행하지 않았다**. v1.1은 FineWeb + OpenWebMath만 썼다.
+2단계는 문서화된 연속학습이다. SmolLM `python-edu`를 넣던 초기 믹스안은 **실행하지 않았다**. v1.1은 FineWeb + OpenWebMath만 썼다.
 
 ---
 
 ## 3. 관련 연구
 
-백본은 GPT-2 [Radford et al., 2019]를 따른다: Pre-Norm 잔차 블록, 학습된 절대 위치 임베딩, 인과적 multi-head self-attention, tied embedding / LM head. 학습 스택은 현대화되어 있다(AdamW, cosine decay, BF16, PyTorch SDPA). TensorFlow 1.x / WebText 복제가 아니다. 충실도 계층은 [`docs/pretraining_recipe.md`](pretraining_recipe.md)에 적혀 있다.
+백본은 GPT-2 [Radford et al., 2019]를 따른다: Pre-Norm 잔차 블록, 학습된 절대 위치 임베딩, 인과적 multi-head self-attention, tied embedding / LM head. 학습 스택은 현대화되어 있다(AdamW, cosine decay, BF16, PyTorch SDPA). 충실도 계층은 [`docs/pretraining_recipe.md`](pretraining_recipe.md)에 적혀 있다.
 
 1단계 토큰 예산은 Chinchilla 계산 최적비(대략 20 tokens/parameter) [Hoffmann et al., 2022]를 따른다. 실행된 v1.0 비는 FineWeb-Edu 2.5B 토큰 1패스에서 20.09 tokens/parameter다.
 
 사전학습 데이터는 v1.0이 FineWeb-Edu [Penedo et al. / HuggingFaceFW], 연속이 FineWeb과 OpenWebMath [Paster et al.]다. 상세와 라이선스는 [§6](#6-데이터)와 [§11](#11-용도-한계-라이선스)에 있다.
 
-평가 쪽에서 공식 GPT-2 Small은 동일 아키텍처 참조다. Pythia [Biderman et al., 2023], SmolLM2, Qwen2.5-0.5B는 저장소 안 프로토콜 `english-lm-suite-v1`로 측정했고 논문 발표 숫자는 섞지 않았다. 토큰 수와 아키텍처는 **맞추지 않았다**. 공유 채점 규칙 아래의 베이스라인이며, 공정한 컴퓨트 대결이 아니다.
+평가 쪽에서 공식 GPT-2 Small은 동일 아키텍처 참조다. Pythia [Biderman et al., 2023], SmolLM2, Qwen2.5-0.5B는 저장소 안 프로토콜 `english-lm-suite-v1`로 측정했고 논문 발표 숫자는 섞지 않았다. 토큰 수와 아키텍처는 **맞추지 않았다**. 공유 채점 규칙 아래의 베이스라인이다.
 
 ---
 
@@ -140,7 +140,7 @@ flowchart TB
   add2 --> xout
 ```
 
-Attention 형상. 스케일 `1/sqrt(64)`. 인과적 multi-head. GQA가 아니다.
+Attention 형상. 스케일 `1/sqrt(64)`. 인과적 multi-head.
 
 ```mermaid
 flowchart LR
@@ -158,7 +158,7 @@ flowchart LR
 
 ## 5. 토크나이저
 
-GPT-2 byte-level BPE(`tiktoken.get_encoding("gpt2")`). 어휘 50,257. End-of-text id **50,256**. 커스텀 토크나이저는 없다.
+GPT-2 byte-level BPE(`tiktoken.get_encoding("gpt2")`). 어휘 50,257. End-of-text id **50,256**.
 
 학습 수집은 문서 본문에 `encode_ordinary()`를 쓰고(페이지 안의 리터럴 `<|endoftext|>`는 일반 바이트), 문서 경계로 EOT를 하나 붙인다. 매니페스트는 `special_token_policy: encode_ordinary + appended EOT`로 기록한다. 학습 기기의 tiktoken은 `0.14.0`이었다.
 
@@ -214,7 +214,7 @@ flowchart LR
   v10 --> v11 --> life
 ```
 
-0.25B 수학 슬라이스는 수식이 미지의 분포가 되지 않게 하려는 것이다. 수학 모델을 주장할 양은 아니고, GSM8K는 평가 프로토콜에 없다.
+0.25B 수학 슬라이스는 수식이 미지의 분포가 되지 않게 하려는 것이다. GSM8K는 평가 프로토콜에 없다.
 
 ---
 
@@ -271,7 +271,7 @@ AdamW 그룹은 tied 파라미터 중복을 건너뛰어 `wte`와 `lm_head`를 �
 | Other optimizer / batch fields | same as v1.0 |
 | `seed` | 1337 |
 
-**FineWeb-Edu 한 에포크 뒤, 다른 믹스.** 연속은 의도적으로 Edu 분포를 떠난다. v1.1 동안 FineWeb-Edu validation CE가 오르는 것은 예상이지 숨은 퇴행이 아니다.
+**FineWeb-Edu 한 에포크 뒤, 다른 믹스.** 연속은 의도적으로 Edu 분포를 떠난다. v1.1 동안 FineWeb-Edu validation CE가 오르는 것은 예상이다.
 
 ---
 
@@ -288,7 +288,7 @@ AdamW 그룹은 tied 파라미터 중복을 건너뛰어 `wte`와 `lm_head`를 �
 | Training-only tok/s | 85,076 | ~84,700 |
 | Peak CUDA allocated (MiB) | 9,523.61 | 9,528.69 |
 
-v1.1 `summary.json`의 `training_only_tokens_per_sec`는 **169,416**이다. **생애** 5.0B 토큰을 이 단계 학습 시간으로 나눈 값이며 처리량 측정이 아니다. 단계 토큰 2,500,001,792 / `train_elapsed_seconds` 29,513.24 s ≈ **84,708** tok/s로 v1.0과 맞는다.
+v1.1 `summary.json`의 `training_only_tokens_per_sec`는 **169,416**이다. **생애** 5.0B 토큰을 이 단계 학습 시간으로 나눈 값이다. 단계 토큰 2,500,001,792 / `train_elapsed_seconds` 29,513.24 s ≈ **84,708** tok/s로 v1.0과 맞는다.
 
 피크 할당은 약 9.5 GiB에 머물렀으므로 이 배치 형태에서는 24 GB 카드에 여유가 있다. Hub 수집과 샤드 팩 벽시계는 step 1 이전이며 GPU-hour 합계에 넣지 않는다.
 
@@ -362,8 +362,8 @@ Edu val CE 3.32 → 3.47 상승은 예상된 분포 이동이다. v1.1에는 `ru
 
 | Model | Params | Corpus | HS acc_norm | LAMBADA | PIQA | WG | ARC-E | Avg |
 | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | FineWeb-Edu 2.5B | **29.40%** | **19.58%** | **61.37%** | **50.51%** | **43.01%** | **40.77%** |
-| **basikGPT-1 v1.1** | 124M | Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | **28.75%** | **23.05%** | **61.75%** | **50.83%** | **38.51%** | **40.58%** |
+| **v1.0** | 124M | FineWeb-Edu 2.5B | **29.40%** | **19.58%** | **61.37%** | **50.51%** | **43.01%** | **40.77%** |
+| **v1.1** | 124M | Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | **28.75%** | **23.05%** | **61.75%** | **50.83%** | **38.51%** | **40.58%** |
 | `openai-community/gpt2` | 124M | WebText | 30.37% | 30.93% | 62.57% | 51.62% | 38.13% | 42.72% |
 | SmolLM2-135M | 135M | SmolLM2 mix | 42.67% | 42.97% | 67.57% | 51.93% | 59.43% | 52.91% |
 | SmolLM2-360M | 362M | SmolLM2 mix | 55.23% | 53.25% | 71.71% | 54.14% | 66.75% | 60.22% |
@@ -385,9 +385,7 @@ WG는 acc_raw, 나머지 열은 스위트 primary metric. Avg는 그 다섯 값�
 - **공식 GPT-2 Small 대비.** 같은 디코더, 같은 tiktoken, 같은 completion NLL. primary에서 gpt2를 이긴 것은 v1.0 ARC-Easy **+4.88 pp**뿐이다. LAMBADA는 여전히 크게 낮다(v1.0 −11.35 pp, v1.1 −7.88 pp). HellaSwag는 약간 아래(v1.0 −0.97 pp, v1.1 −1.62 pp).
 - **HellaSwag ~29%.** 우연 25% 위, gpt2·Pythia-160M과 같은 띠, SmolLM2-135M 42.67%보다 훨씬 아래. 가까운 파라미터 수가 가까운 데이터 예산을 뜻하지 않는다.
 - **WinoGrande.** 여덟 모델 모두 49.5–55.6%. n=1,267에서 50%의 표준오차는 약 1.4 pp라 50.51%와 50.83%는 우연과 구분되지 않는다.
-- **규모 사다리.** SmolLM2-360M과 Qwen2.5-0.5B는 124M GPT-2 급보다 분명히 위다. 예상된 믹스·스케일 차이지 놀람이 아니다.
-
-**이 숫자로 하지 않는 주장.** 하이퍼파라미터 탐색은 끝나지 않았다. 표는 토큰 일치·컴퓨트 일치 대결이 아니다. “GPT-2를 이겼다”는 헤드라인으로 거짓이다. 2.5B와 5B는 **학습 토큰**이지 파라미터가 아니다. 0.25B OpenWebMath는 GSM8K를 뜻하지 않는다(프로토콜에 없음). KoBEST, MMLU, HumanEval, WikiText PPL은 스위트에 없다.
+- **규모 사다리.** SmolLM2-360M과 Qwen2.5-0.5B는 124M GPT-2 급보다 분명히 위다. 예상된 믹스·스케일 차이다.
 
 공개 점수: [`benchmarks/REPORT.md`](../benchmarks/REPORT.md)와 [`benchmarks/summary.json`](../benchmarks/summary.json). 그림 재생성: `python scripts/plot_lm_suite_compare.py`.
 
@@ -397,7 +395,7 @@ WG는 acc_raw, 나머지 열은 스위트 primary metric. Avg는 그 다섯 값�
 
 ### 용도
 
-basikGPT-1은 연구·교육·추가 사전학습·파인튜닝용 영어 **base** 체크포인트다. 챗봇이 아니고 instruction-tuned도 아니다. 개방형 프로덕션 채팅에는 안전하지 않다.
+basikGPT-1은 연구·교육·추가 사전학습·파인튜닝용 영어 **base** 모델이다.
 
 FineWeb-Edu 체크포인트(ARC-Easy가 더 강함)는 **v1.0**, 5B 연속(LAMBADA는 오르고 ARC-Easy는 내린다)은 **v1.1**. 아래 예시는 v1.1을 로드한다.
 
@@ -481,7 +479,7 @@ python scripts/evaluate_lm_suite.py --protocol-all --device cuda
 python scripts/plot_lm_suite_compare.py
 ```
 
-`data/` 아래 큰 샤드와 `runs/` 아래 `.pt`는 gitignore된다. 프로덕션 2.5B 수집은 디스크와 Hub 스트림이 필요하며 노트북 기본값이 아니다.
+`data/` 아래 큰 샤드와 `runs/` 아래 `.pt`는 gitignore된다. 프로덕션 2.5B 수집은 디스크와 Hub 스트림이 필요하다.
 
 기록된 git SHA(둘 다 dirty):
 
@@ -498,7 +496,7 @@ dirty 트리는 SHA가 출처이지 비트 단위 레시피 잠금이 아님을 
 
 basikGPT-1은 완결된 GPT-2 Small 사전학습이다: 검증된 124,439,808 파라미터 디코더, GPT-2 BPE, 문서화된 FineWeb-Edu 2.5B 단계(20.09 tokens/parameter, 8.18 GPU hours, full-val PPL 25.92), 문서화된 FineWeb+OpenWebMath 5B 연속, 저장소 안 제로샷 영어 스위트.
 
-v1.0은 HellaSwag에서 공식 gpt2 옆, ARC-Easy에서는 위, LAMBADA가 가장 큰 간격이다. v1.1은 그 LAMBADA 간격의 일부를 메우고 ARC-Easy 우위를 돌려준다. 이 프로토콜의 같은 크기 공개 디코더는 가깝고, 더 큰 현대 믹스로 학습한 135M–0.5B는 위에 있다. 예상된 규모·데이터 사다리이지 놀람이 아니다.
+v1.0은 HellaSwag에서 공식 gpt2 옆, ARC-Easy에서는 위, LAMBADA가 가장 큰 간격이다. v1.1은 그 LAMBADA 간격의 일부를 메우고 ARC-Easy 우위를 돌려준다. 이 프로토콜의 같은 크기 공개 디코더는 가깝고, 더 큰 현대 믹스로 학습한 135M–0.5B는 위에 있다. 예상된 규모·데이터 사다리다.
 
 ---
 

@@ -85,8 +85,10 @@ def test_write_report_contains_protocol_and_scores(tmp_path: Path) -> None:
     assert "Qwen/Qwen2.5-0.5B" in text
     assert "apple/OpenELM" not in text
     assert "OpenELM" in text  # listed under Not included
-    assert "basikgpt-2p5b" in text
     assert "basikgpt-5b" in text
+    assert "| v1.0 |" in text
+    assert "- v1.0 —" in text
+    assert "- v1.1 —" in text
     assert "29.33%" in text
     assert "| Avg |" in text
     assert "45.07%" in text

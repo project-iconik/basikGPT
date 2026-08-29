@@ -2,7 +2,7 @@
 
 [English](README.md) · [日本語](README.ja.md) · **한국어**
 
-basikGPT는 **사전학습된 GPT-2 Small decoder-only Transformer**(124,439,808 고유 파라미터)와 그것을 학습한 PyTorch 코드다. **base** 체크포인트이며 instruction-tuned 챗봇이 아니다.
+basikGPT는 **사전학습된 GPT-2 Small decoder-only Transformer**(124,439,808 고유 파라미터)와 그것을 학습한 PyTorch 코드다. **base** 모델이다.
 
 - 가중치: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0) (2.5B 토큰), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1) (5B 토큰)
 - 백서: [`docs/whitepaper.md`](docs/whitepaper.md) ([JA](docs/whitepaper.ja.md), [KO](docs/whitepaper.ko.md))
@@ -48,8 +48,8 @@ python scripts/generate.py --checkpoint runs/main_2p5b/step-00038147.pt --prompt
 
 | Model | size | HS | LAMBADA | PIQA | WG | ARC-E | Avg |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **basikGPT-1 v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** | 40.77 |
-| **basikGPT-1 v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 | 40.58 |
+| **v1.0** | 124M | 29.40 | 19.58 | 61.37 | 50.51 | **43.01** | 40.77 |
+| **v1.1** | 124M | 28.75 | 23.05 | 61.75 | 50.83 | 38.51 | 40.58 |
 | openai-community/gpt2 | 124M | 30.37 | 30.93 | 62.57 | 51.62 | 38.13 | 42.72 |
 | HuggingFaceTB/SmolLM2-135M | 135M | 42.67 | 42.97 | 67.57 | 51.93 | 59.43 | 52.91 |
 | EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 | 36.57 |
@@ -110,7 +110,7 @@ flowchart TB
 
 ## Tokenizer
 
-GPT-2 byte-level BPE(`tiktoken.get_encoding("gpt2")`). 어휘 50,257. End-of-text id 50,256. 커스텀 토크나이저는 없다. 학습 수집은 `encode_ordinary()` 후 문서마다 EOT를 하나 붙인다. Hub 내보내기는 공식 GPT-2 토크나이저 파일을 포함한다. 상세: [백서 §5](docs/whitepaper.ko.md#5-토크나이저).
+GPT-2 byte-level BPE(`tiktoken.get_encoding("gpt2")`). 어휘 50,257. End-of-text id 50,256. 학습 수집은 `encode_ordinary()` 후 문서마다 EOT를 하나 붙인다. Hub 내보내기는 공식 GPT-2 토크나이저 파일을 포함한다. 상세: [백서 §5](docs/whitepaper.ko.md#5-토크나이저).
 
 ## Data
 
@@ -131,7 +131,7 @@ flowchart LR
 
 ### A. 공개 가중치 사용 (기본)
 
-[Quick start](#quick-start)를 본다. 팩된 코퍼스는 필요 없다. 추론에 24 GB GPU는 필요 없다.
+[Quick start](#quick-start)를 본다.
 
 ### B. FineWeb-Edu 2.5B 다시 학습
 
@@ -155,13 +155,13 @@ python scripts/train.py \
   --output-dir runs/main_2p5b
 ```
 
-설정 [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json)은 동결 레시피를 기록한다(provisional, 최적 주장 아님). 프로덕션 피크 CUDA allocated는 **9,523.61 MiB**.
+설정 [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json)은 동결 레시피를 기록한다(provisional). 프로덕션 피크 CUDA allocated는 **9,523.61 MiB**.
 
 각 `train.py` 실행은 `runs/<name>/`에 쓴다. 공개된 방법과 지표는 [백서](docs/whitepaper.ko.md)에 있다. 스텝 로그(`metrics.jsonl`)와 샤드 매니페스트(`dataset.json`)는 gitignore된다.
 
 ### C. Tiny CPU 스모크 (실험만)
 
-프로덕션 학습셋이 아니다. 먼저 스모크 샤드 디렉터리가 필요하다.
+먼저 스모크 샤드 디렉터리가 필요하다.
 
 ```bash
 python scripts/prepare_fineweb_edu.py --output data/fineweb-edu-smoke

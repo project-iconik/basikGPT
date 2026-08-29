@@ -47,8 +47,8 @@ and training corpus only. All external models are **base** (not Instruct), 0.1B�
 **Ours:** two basikGPT GPT-2 Small checkpoints (124M parameters; token counts are
 tokens seen, not parameters):
 
-- `basikgpt-2p5b` — FineWeb-Edu 2.5B (`runs/main_2p5b/step-00038147.pt`)
-- `basikgpt-5b` — same run continued to 5B on FineWeb 2.25B + OpenWebMath 0.25B
+- v1.0 — FineWeb-Edu 2.5B (`runs/main_2p5b/step-00038147.pt`)
+- v1.1 — same run continued to 5B on FineWeb 2.25B + OpenWebMath 0.25B
   (`runs/cont_5b_mix/step-00076294.pt`)
 
 Intermediate 100M / 500M / 1B / 3.5B checkpoints are not in this suite.
@@ -77,8 +77,8 @@ are comparable as a protocol, not as matched-token perplexity.
 
 | Model | Params | Family | Corpus | HS acc_norm | HS acc_raw | LAMBADA | PIQA acc_norm | WG acc | ARC-E acc_norm | Avg |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `basikgpt-2p5b` | 124M | GPT-2 Small (basikGPT) | FineWeb-Edu 2.5B tokens | 29.40% | 28.07% | 19.58% | 61.37% | 50.51% | 43.01% | 40.77% |
-| `basikgpt-5b` | 124M | GPT-2 Small (basikGPT) | FineWeb-Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | 28.75% | 27.95% | 23.05% | 61.75% | 50.83% | 38.51% | 40.58% |
+| v1.0 | 124M | GPT-2 Small (basikGPT) | FineWeb-Edu 2.5B tokens | 29.40% | 28.07% | 19.58% | 61.37% | 50.51% | 43.01% | 40.77% |
+| v1.1 | 124M | GPT-2 Small (basikGPT) | FineWeb-Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B | 28.75% | 27.95% | 23.05% | 61.75% | 50.83% | 38.51% | 40.58% |
 | `gpt2` | 124M | GPT-2 Small | WebText | 30.37% | 28.95% | 30.93% | 62.57% | 51.62% | 38.13% | 42.72% |
 | `SmolLM2-135M` | 135M | SmolLM2 | SmolLM2 (HuggingFaceTB) | 42.67% | 34.97% | 42.97% | 67.57% | 51.93% | 59.43% | 52.91% |
 | `SmolLM2-360M` | 360M | SmolLM2 | SmolLM2 (HuggingFaceTB) | 55.23% | 42.14% | 53.25% | 71.71% | 54.14% | 66.75% | 60.22% |

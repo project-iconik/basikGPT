@@ -449,6 +449,19 @@ def _primary_average(entry: dict[str, Any]) -> float | None:
     return sum(float(value) for value in values) / 5.0
 
 
+REPORT_DISPLAY_NAMES = {
+    "basikgpt-2p5b": "v1.0",
+    "basikgpt-5b": "v1.1",
+}
+
+
+def _report_model_name(mid: str, entry: dict[str, Any]) -> str:
+    display = REPORT_DISPLAY_NAMES.get(mid)
+    if display is not None:
+        return display
+    return f"`{entry.get('id', mid)}`"
+
+
 def write_report(output_dir: Path, summary: dict[str, Any] | None = None) -> Path:
     """Writes the protocol body and comparison table to benchmarks/REPORT.md."""
     if summary is None:
@@ -468,7 +481,7 @@ def write_report(output_dir: Path, summary: dict[str, Any] | None = None) -> Pat
         wg = _task_score(e, "winogrande", "acc_raw")
         arc = _task_score(e, "arc_easy", "acc_norm")
         rows.append(
-            f"| `{e.get('id', mid)}` | {e.get('params_label', '')} | {e.get('family', '')} "
+            f"| {_report_model_name(mid, e)} | {e.get('params_label', '')} | {e.get('family', '')} "
             f"| {e.get('corpus', '')} | {_fmt_pct(hs_norm)} | {_fmt_pct(hs_raw)} "
             f"| {_fmt_pct(lambada)} | {_fmt_pct(piqa)} | {_fmt_pct(wg)} | {_fmt_pct(arc)} "
             f"| {_fmt_pct(_primary_average(e))} |"
@@ -524,8 +537,8 @@ and training corpus only. All external models are **base** (not Instruct), 0.1B�
 **Ours:** two basikGPT GPT-2 Small checkpoints (124M parameters; token counts are
 tokens seen, not parameters):
 
-- `basikgpt-2p5b` — FineWeb-Edu 2.5B (`runs/main_2p5b/step-00038147.pt`)
-- `basikgpt-5b` — same run continued to 5B on FineWeb 2.25B + OpenWebMath 0.25B
+- v1.0 — FineWeb-Edu 2.5B (`runs/main_2p5b/step-00038147.pt`)
+- v1.1 — same run continued to 5B on FineWeb 2.25B + OpenWebMath 0.25B
   (`runs/cont_5b_mix/step-00076294.pt`)
 
 Intermediate 100M / 500M / 1B / 3.5B checkpoints are not in this suite.

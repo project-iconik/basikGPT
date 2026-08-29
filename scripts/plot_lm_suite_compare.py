@@ -25,8 +25,8 @@ MODEL_ORDER = (
 )
 
 DISPLAY_NAMES = {
-    "basikgpt-2p5b": "basikGPT-1 v1.0",
-    "basikgpt-5b": "basikGPT-1 v1.1",
+    "basikgpt-2p5b": "v1.0",
+    "basikgpt-5b": "v1.1",
     "gpt2": "gpt2",
     "SmolLM2-135M": "SmolLM2-135M",
     "SmolLM2-360M": "SmolLM2-360M",
@@ -166,8 +166,8 @@ def plot_hellaswag_vs_size(models: dict[str, dict], output_path: Path) -> None:
     colors = [row[3] for row in rows]
     ax.scatter(xs, ys, c=colors, s=48, zorder=3)
     for x, y, label, _color in rows:
-        dy = 1.4 if "v1.1" in label else 1.2
-        if label == "basikGPT-1 v1.0":
+        dy = 1.4 if label == "v1.1" else 1.2
+        if label == "v1.0":
             dy = -2.2
         ax.annotate(label, (x, y), textcoords="offset points", xytext=(6, dy), fontsize=8)
 
