@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from basikgpt.evaluation.suite import write_report
+from basikgpt.evaluation.suite import PROTOCOL_MODELS, write_report
 from basikgpt.evaluation.tasks import (
     parse_arc_example,
     parse_piqa_example,
@@ -92,3 +92,9 @@ def test_write_report_contains_protocol_and_scores(tmp_path: Path) -> None:
     assert "runs/cont_5b_mix/step-00076294.pt" in text
     assert "acc_norm" in text
     assert "GPT-2 Medium" in text or "Not included" in text
+
+
+def test_protocol_models_have_hub_ids() -> None:
+    by_id = {spec.id: spec for spec in PROTOCOL_MODELS}
+    assert by_id["basikgpt-2p5b"].hf_id == "project-iconik/basikGPT-1-v1.0"
+    assert by_id["basikgpt-5b"].hf_id == "project-iconik/basikGPT-1-v1.1"

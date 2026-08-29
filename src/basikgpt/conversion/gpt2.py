@@ -184,6 +184,139 @@ def convert_hf_gpt2_state_dict(
     return converted
 
 
+def convert_basikgpt_state_dict_to_hf(
+    state_dict: Mapping[str, torch.Tensor],
+    config: GPTConfig | None = None,
+) -> dict[str, torch.Tensor]:
+    """Converts a basikGPT state dictionary into a HuggingFace GPT-2 state dictionary.
+
+    Inverse of `convert_hf_gpt2_state_dict`. Transposes 2D `nn.Linear` weights back to
+    HuggingFace Conv1D layout `(in_features, out_features)`. Omits causal-mask buffers
+    (`attn.bias`, `attn.masked_bias`); HuggingFace recreates those on load.
+
+    Args:
+        state_dict: Source state dictionary from `basikGPT.GPT.state_dict()`.
+        config: Optional GPTConfig to validate layer count against.
+
+    Returns:
+        A dictionary containing keys matching `GPT2LMHeadModel.state_dict()` weights.
+        `lm_head.weight` is the same storage as `transformer.wte.weight` (tied).
+
+    Raises:
+        KeyError: If required parameter keys are missing in the source dictionary.
+        ValueError: If an unrecognized key is present or weight tying is broken.
+    """
+    converted: dict[str, torch.Tensor] = {}
+    used_keys: set[str] = set()
+
+    if config is not None:
+        n_layers = config.n_layers
+    else:
+        layer_indices = [
+            int(k.split(".")[1])
+            for k in state_dict.keys()
+            if k.startswith("blocks.") and k.split(".")[1].isdigit()
+        ]
+        n_layers = max(layer_indices) + 1 if layer_indices else 12
+
+    if "wte.weight" not in state_dict:
+        raise KeyError("Missing required key 'wte.weight' in basikGPT state_dict.")
+    converted["transformer.wte.weight"] = state_dict["wte.weight"]
+    used_keys.add("wte.weight")
+
+    if "wpe.weight" not in state_dict:
+        raise KeyError("Missing required key 'wpe.weight' in basikGPT state_dict.")
+    converted["transformer.wpe.weight"] = state_dict["wpe.weight"]
+    used_keys.add("wpe.weight")
+
+    for layer_idx in range(n_layers):
+        src_prefix = f"blocks.{layer_idx}"
+        dest_prefix = f"transformer.h.{layer_idx}"
+
+        converted[f"{dest_prefix}.ln_1.weight"] = state_dict[f"{src_prefix}.ln_1.weight"]
+        used_keys.add(f"{src_prefix}.ln_1.weight")
+        if f"{src_prefix}.ln_1.bias" in state_dict:
+            converted[f"{dest_prefix}.ln_1.bias"] = state_dict[f"{src_prefix}.ln_1.bias"]
+            used_keys.add(f"{src_prefix}.ln_1.bias")
+
+        qkv_w = state_dict[f"{src_prefix}.attn.qkv_proj.weight"]
+        converted[f"{dest_prefix}.attn.c_attn.weight"] = qkv_w.t().contiguous()
+        used_keys.add(f"{src_prefix}.attn.qkv_proj.weight")
+        if f"{src_prefix}.attn.qkv_proj.bias" in state_dict:
+            converted[f"{dest_prefix}.attn.c_attn.bias"] = state_dict[f"{src_prefix}.attn.qkv_proj.bias"]
+            used_keys.add(f"{src_prefix}.attn.qkv_proj.bias")
+
+        out_w = state_dict[f"{src_prefix}.attn.out_proj.weight"]
+        converted[f"{dest_prefix}.attn.c_proj.weight"] = out_w.t().contiguous()
+        used_keys.add(f"{src_prefix}.attn.out_proj.weight")
+        if f"{src_prefix}.attn.out_proj.bias" in state_dict:
+            converted[f"{dest_prefix}.attn.c_proj.bias"] = state_dict[f"{src_prefix}.attn.out_proj.bias"]
+            used_keys.add(f"{src_prefix}.attn.out_proj.bias")
+
+        converted[f"{dest_prefix}.ln_2.weight"] = state_dict[f"{src_prefix}.ln_2.weight"]
+        used_keys.add(f"{src_prefix}.ln_2.weight")
+        if f"{src_prefix}.ln_2.bias" in state_dict:
+            converted[f"{dest_prefix}.ln_2.bias"] = state_dict[f"{src_prefix}.ln_2.bias"]
+            used_keys.add(f"{src_prefix}.ln_2.bias")
+
+        fc_in_w = state_dict[f"{src_prefix}.mlp.fc_in.weight"]
+        converted[f"{dest_prefix}.mlp.c_fc.weight"] = fc_in_w.t().contiguous()
+        used_keys.add(f"{src_prefix}.mlp.fc_in.weight")
+        if f"{src_prefix}.mlp.fc_in.bias" in state_dict:
+            converted[f"{dest_prefix}.mlp.c_fc.bias"] = state_dict[f"{src_prefix}.mlp.fc_in.bias"]
+            used_keys.add(f"{src_prefix}.mlp.fc_in.bias")
+
+        fc_out_w = state_dict[f"{src_prefix}.mlp.fc_out.weight"]
+        converted[f"{dest_prefix}.mlp.c_proj.weight"] = fc_out_w.t().contiguous()
+        used_keys.add(f"{src_prefix}.mlp.fc_out.weight")
+        if f"{src_prefix}.mlp.fc_out.bias" in state_dict:
+            converted[f"{dest_prefix}.mlp.c_proj.bias"] = state_dict[f"{src_prefix}.mlp.fc_out.bias"]
+            used_keys.add(f"{src_prefix}.mlp.fc_out.bias")
+
+    converted["transformer.ln_f.weight"] = state_dict["ln_f.weight"]
+    used_keys.add("ln_f.weight")
+    if "ln_f.bias" in state_dict:
+        converted["transformer.ln_f.bias"] = state_dict["ln_f.bias"]
+        used_keys.add("ln_f.bias")
+
+    if "lm_head.weight" in state_dict:
+        if state_dict["lm_head.weight"].data_ptr() != state_dict["wte.weight"].data_ptr():
+            if not torch.equal(state_dict["lm_head.weight"], state_dict["wte.weight"]):
+                raise ValueError("Weight tying is broken: lm_head.weight != wte.weight")
+        used_keys.add("lm_head.weight")
+    converted["lm_head.weight"] = converted["transformer.wte.weight"]
+
+    ignored_suffixes = (".attn.bias", ".attn.masked_bias", ".causal_mask")
+    for key in state_dict.keys():
+        if key not in used_keys and not key.endswith(ignored_suffixes):
+            raise ValueError(f"Unrecognized or unmapped key in basikGPT state_dict: '{key}'")
+
+    return converted
+
+
+def gpt_config_to_hf_kwargs(config: GPTConfig) -> dict[str, Any]:
+    """Keyword arguments for `transformers.GPT2Config` matching a `GPTConfig`."""
+    eos_id = 50256 if config.vocab_size >= 50257 else config.vocab_size - 1
+    return {
+        "vocab_size": config.vocab_size,
+        "n_positions": config.context_length,
+        "n_ctx": config.context_length,
+        "n_embd": config.d_model,
+        "n_layer": config.n_layers,
+        "n_head": config.n_heads,
+        "n_inner": config.d_ff,
+        "activation_function": "gelu_new",
+        "resid_pdrop": config.dropout,
+        "embd_pdrop": config.dropout,
+        "attn_pdrop": config.dropout,
+        "layer_norm_epsilon": config.layer_norm_eps,
+        "initializer_range": config.initializer_range,
+        "bos_token_id": eos_id,
+        "eos_token_id": eos_id,
+        "pad_token_id": eos_id,
+    }
+
+
 def load_hf_gpt2_weights(
     target_model: GPT,
     source: str | Any = "gpt2",

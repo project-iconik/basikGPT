@@ -6,6 +6,7 @@ import torch
 
 from basikgpt.config import GPTConfig
 from basikgpt.conversion.gpt2 import (
+    convert_basikgpt_state_dict_to_hf,
     convert_hf_gpt2_state_dict,
     load_hf_gpt2_weights,
     validate_hf_config,
@@ -183,3 +184,76 @@ def test_all_12_layers_mapping_coverage() -> None:
     # Total unique parameters should match
     load_hf_gpt2_weights(model, hf_sd)
     assert model.num_parameters() == 124_439_808
+
+
+def test_basik_to_hf_roundtrip_synthetic() -> None:
+    """HF → basikGPT → HF reconstructs the original weight tensors."""
+    V, T, C, F, L = 128, 32, 32, 128, 2
+    cfg = GPTConfig(
+        vocab_size=V,
+        context_length=T,
+        d_model=C,
+        d_ff=F,
+        n_layers=L,
+        n_heads=4,
+    )
+    hf_sd = create_synthetic_hf_state_dict(vocab_size=V, context_length=T, d_model=C, d_ff=F, n_layers=L)
+    basik_sd = convert_hf_gpt2_state_dict(hf_sd, config=cfg)
+    restored = convert_basikgpt_state_dict_to_hf(basik_sd, config=cfg)
+
+    assert set(restored) == set(hf_sd)
+    for key, tensor in hf_sd.items():
+        assert torch.equal(restored[key], tensor), f"Mismatch after roundtrip: {key}"
+    assert restored["lm_head.weight"].data_ptr() == restored["transformer.wte.weight"].data_ptr()
+
+
+def test_convert_basik_missing_wte_raises() -> None:
+    cfg = GPTConfig(vocab_size=32, context_length=16, d_model=16, d_ff=32, n_layers=1, n_heads=2)
+    model = GPT(cfg)
+    sd = dict(model.state_dict())
+    del sd["wte.weight"]
+    with pytest.raises(KeyError, match="Missing required key 'wte.weight'"):
+        convert_basikgpt_state_dict_to_hf(sd, config=cfg)
+
+
+def test_tiny_exported_hf_model_logits_match() -> None:
+    """A tiny GPT loaded into GPT2LMHeadModel matches basikGPT logits."""
+    pytest.importorskip("transformers")
+    from transformers import GPT2Config, GPT2LMHeadModel
+
+    from basikgpt.conversion.gpt2 import gpt_config_to_hf_kwargs
+
+    cfg = GPTConfig(
+        vocab_size=128,
+        context_length=32,
+        d_model=32,
+        d_ff=64,
+        n_layers=2,
+        n_heads=4,
+        dropout=0.0,
+    )
+    model = GPT(cfg)
+    model.eval()
+    hf_model = GPT2LMHeadModel(GPT2Config(**gpt_config_to_hf_kwargs(cfg)))
+    hf_state = convert_basikgpt_state_dict_to_hf(model.state_dict(), cfg)
+    missing, unexpected = hf_model.load_state_dict(hf_state, strict=False)
+    assert not [k for k in unexpected if not k.endswith((".attn.bias", ".attn.masked_bias"))]
+    assert not [k for k in missing if not k.endswith((".attn.bias", ".attn.masked_bias"))]
+    hf_model.tie_weights()
+    hf_model.eval()
+
+    torch.manual_seed(0)
+    input_ids = torch.randint(0, cfg.vocab_size, (2, 16))
+    with torch.no_grad():
+        basik_logits = model(input_ids)
+        hf_logits = hf_model(input_ids).logits
+    assert torch.allclose(basik_logits, hf_logits, atol=1e-4, rtol=1e-4)
+
+
+def test_convert_basik_unexpected_key_raises() -> None:
+    cfg = GPTConfig(vocab_size=32, context_length=16, d_model=16, d_ff=32, n_layers=1, n_heads=2)
+    model = GPT(cfg)
+    sd = dict(model.state_dict())
+    sd["blocks.0.extra_unknown.weight"] = torch.randn(4)
+    with pytest.raises(ValueError, match="Unrecognized or unmapped key"):
+        convert_basikgpt_state_dict_to_hf(sd, config=cfg)

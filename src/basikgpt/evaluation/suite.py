@@ -72,6 +72,7 @@ PROTOCOL_MODELS: tuple[ProtocolModelSpec, ...] = (
         family="GPT-2 Small (basikGPT)",
         corpus="FineWeb-Edu 2.5B tokens",
         checkpoint=str(DEFAULT_CHECKPOINT),
+        hf_id="project-iconik/basikGPT-1-v1.0",
     ),
     ProtocolModelSpec(
         id="basikgpt-5b",
@@ -80,6 +81,7 @@ PROTOCOL_MODELS: tuple[ProtocolModelSpec, ...] = (
         family="GPT-2 Small (basikGPT)",
         corpus="FineWeb-Edu 2.5B + FineWeb 2.25B + OpenWebMath 0.25B",
         checkpoint=str(DEFAULT_CHECKPOINT_5B),
+        hf_id="project-iconik/basikGPT-1-v1.1",
     ),
     ProtocolModelSpec(
         id="gpt2",
