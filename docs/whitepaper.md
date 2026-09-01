@@ -14,7 +14,7 @@
 
 This technical whitepaper records the architecture, tokenizer, data mix, two completed production pretraining runs, language-model metrics, and a zero-shot English LM suite comparison for **basikGPT-1**.
 
-Machine-readable tables for the 2.5B run live in [`runs/main_2p5b/WHITEPAPER.md`](../runs/main_2p5b/WHITEPAPER.md). This document is the narrative record of both checkpoints.
+Machine-generated snapshot tables for the 2.5B run live in [`runs/main_2p5b/WHITEPAPER.md`](../runs/main_2p5b/WHITEPAPER.md). This document serves as the comprehensive technical report for both checkpoints.
 
 ---
 
@@ -40,14 +40,14 @@ Machine-readable tables for the 2.5B run live in [`runs/main_2p5b/WHITEPAPER.md`
 
 ## 1. Abstract
 
-basikGPT-1 is a **124,439,808**-parameter GPT-2 Small decoder-only Transformer trained from scratch in PyTorch. Two production stages ran on a single NVIDIA RTX PRO 4500 Blackwell:
+basikGPT-1 is a **124,439,808**-parameter GPT-2 Small decoder-only Transformer trained from scratch in PyTorch. Two production stages were run on a single NVIDIA RTX PRO 4500 Blackwell:
 
-- **v1.0** (`main_2p5b`): **2,500,001,792** FineWeb-Edu tokens (about **20.09** tokens per parameter) in **29,462.59 s** (8.18 GPU hours). Post-training full validation cross-entropy / perplexity is **3.2548 / 25.9151**. Protocol HellaSwag `acc_norm` is **29.40%**.
-- **v1.1** (`cont_5b_mix`): continues v1.0 for another 2.5B tokens on FineWeb 2.25B + OpenWebMath 0.25B. Lifetime tokens **5,000,003,584** (about **40.18** tokens per parameter) in **29,593.20 s** (8.22 GPU hours) for this stage. LAMBADA rises **+3.47 pp**; ARC-Easy falls **−4.50 pp**.
+- **v1.0** (`main_2p5b`): was trained on **2,500,001,792** FineWeb-Edu tokens (about **20.09** tokens per parameter) over **29,462.59 s** (8.18 GPU hours). Post-training full-validation cross-entropy and perplexity were **3.2548** and **25.9151**, respectively. HellaSwag `acc_norm` under the suite protocol was **29.40%**.
+- **v1.1** (`cont_5b_mix`): continued training from v1.0 for another 2.5B tokens on FineWeb 2.25B + OpenWebMath 0.25B. It reached a lifetime token count of **5,000,003,584** (about **40.18** tokens per parameter), with **29,593.20 s** (8.22 GPU hours) spent in this stage. LAMBADA rose **+3.47 pp**; ARC-Easy fell **−4.50 pp**.
 
 Weights are on Hugging Face Hub as `GPT2LMHeadModel` exports: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0) and [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1).
 
-The model is a pretrained **base**. The comparison table is a shared-protocol baseline.
+The model is a pretrained **base model**. The comparison table serves as a baseline under a shared protocol.
 
 ---
 
@@ -58,8 +58,8 @@ Public GPT-2 Small checkpoints exist, but a complete, inspectable pretraining st
 basikGPT-1 was trained from scratch with three constraints:
 
 - **Architecture fidelity.** The decoder matches GPT-2 Small: 12 Pre-Norm blocks, 12 heads, `d_model` 768, learned absolute positions, LayerNorm, GPT-2 GELU, tied embeddings, and biases. Official `openai-community/gpt2` weights load through the conversion path and match logits within the documented tolerance.
-- **Chinchilla-near unique data for the first stage.** Hoffmann et al. suggest on the order of 20 tokens per parameter. v1.0 used 2.50B tokens for 124.4M unique parameters, seen once over FineWeb-Edu (`sample-10BT`).
-- **Single 24–32 GB GPU.** Sequence length 1024, micro-batch 8, gradient accumulation 8, BF16, and SDPA keep measured allocation near 9.5 GiB.
+- **Near-Chinchilla compute-optimal data volume for the first stage.** Hoffmann et al. suggest on the order of 20 tokens per parameter. v1.0 used 2.50B tokens for 124.4M unique parameters during one sequential pass over FineWeb-Edu (`sample-10BT`).
+- **Single 24–32 GB GPU.** Sequence length 1024, micro-batch 8, gradient accumulation 8, BF16, and SDPA kept measured peak memory allocation near 9.5 GiB.
 
 The second stage is a documented continuation. An earlier mix sketch that included SmolLM `python-edu` was **not** executed; v1.1 used FineWeb + OpenWebMath only.
 
@@ -67,19 +67,19 @@ The second stage is a documented continuation. An earlier mix sketch that includ
 
 ## 3. Related work
 
-The backbone follows GPT-2 [Radford et al., 2019]: Pre-Norm residual blocks, learned absolute positional embeddings, causal multi-head self-attention, and a tied embedding / LM head. The training stack is modernized (AdamW, cosine decay, BF16, PyTorch SDPA). Fidelity tiers are spelled out in [`docs/pretraining_recipe.md`](pretraining_recipe.md).
+The backbone follows GPT-2 [Radford et al., 2019]: Pre-Norm residual blocks, learned absolute positional embeddings, causal multi-head self-attention, and tied input-embedding and LM-head weights. The training stack is modernized (AdamW, cosine decay, BF16, PyTorch SDPA). Fidelity tiers are spelled out in [`docs/pretraining_recipe.md`](pretraining_recipe.md).
 
 The first-stage token budget follows the Chinchilla compute-optimal ratio of roughly 20 tokens per parameter [Hoffmann et al., 2022]. The executed v1.0 ratio is 20.09 tokens per parameter for one pass over 2.5B FineWeb-Edu tokens.
 
 Pretraining data is FineWeb-Edu [Penedo et al. / HuggingFaceFW] for v1.0, then FineWeb and OpenWebMath [Paster et al.] for the continuation. Details and licenses are in [§6](#6-data) and [§11](#11-intended-use-limitations-and-licenses).
 
-On the evaluation side, official GPT-2 Small is the same-architecture reference. Pythia [Biderman et al., 2023], SmolLM2, and Qwen2.5-0.5B are included under one in-repo protocol (`english-lm-suite-v1`) so size and data language can be compared without mixing published paper numbers. Token counts and architectures are **not** matched. This is a baseline under a shared scoring rule.
+For evaluation, official GPT-2 Small is the same-architecture reference. Pythia [Biderman et al., 2023], SmolLM2, and Qwen2.5-0.5B are included under one in-repo protocol (`english-lm-suite-v1`) to compare the models under consistent scoring despite differences in model size, tokenizer, and training data. Published results from other papers are not mixed in. Token counts and architectures are **not** matched. This is a baseline under a shared scoring rule.
 
 ---
 
 ## 4. Model
 
-Preset `gpt2_small` in `src/basikgpt/config.py`. GPT-2 causal decoder: token embedding, learned positional embedding, twelve Pre-Norm Transformer blocks, final LayerNorm, then an LM head. The LM-head weight is the embedding matrix (`tie_word_embeddings=true`), so the 50,257 × 768 table is counted once (**38,597,376** unique parameters). A parameter breakdown is in the [appendix](#a1-unique-parameter-breakdown).
+The `gpt2_small` preset is defined in `src/basikgpt/config.py`. The GPT-2 causal decoder comprises a token embedding, a learned positional embedding, twelve Pre-Norm Transformer blocks, a final LayerNorm, and an LM head. The LM-head weight is the embedding matrix (`tie_word_embeddings=true`), so the 50,257 × 768 table is counted once (**38,597,376** unique parameters). A parameter breakdown is in the [appendix](#a1-unique-parameter-breakdown).
 
 | Field | Value |
 | --- | --- |
@@ -98,13 +98,13 @@ Preset `gpt2_small` in `src/basikgpt/config.py`. GPT-2 causal decoder: token emb
 | Position encoding | learned absolute |
 | Attention | causal multi-head self-attention (not GQA) |
 | Training sequence length | **1024** |
-| Training dropout | **0.0** (`GPTConfig` default is 0.1; pretraining CLIs override) |
+| Training dropout | **0.0** (`GPTConfig` default is 0.1; overridden by pretraining CLI) |
 
-**Why these choices.** The project freezes the 2019 GPT-2 Small topology until reference parity is verified. Residual projections use the GPT-2 scaled init `std = 0.02 / sqrt(2 * n_layers)`. Attention is scaled dot-product with scale `1/sqrt(64)`. Training uses the SDPA backend; an eager path exists for verification.
+**Why these choices.** During implementation, the project preserved the 2019 GPT-2 Small topology to establish reference parity. Residual projections use the GPT-2 scaled init `std = 0.02 / sqrt(2 * n_layers)`. Attention is scaled dot-product with scale `1/sqrt(64)`. Training uses the SDPA backend; an eager path exists for verification.
 
-**Context length.** Positions are allocated and trained only at 1024. There is no RoPE table and no unused longer-context reservation.
+**Context length.** Positional embeddings are allocated and trained strictly up to sequence length 1024. There is no RoPE table and no unused longer-context reservation.
 
-Decoder stack. Unique parameters 124,439,808; `tie_word_embeddings=true`; training dropout 0.0.
+The decoder stack has 124,439,808 unique parameters, uses `tie_word_embeddings=true`, and was trained with dropout 0.0.
 
 ```mermaid
 flowchart TB
@@ -121,7 +121,7 @@ flowchart TB
   addX --> blocks --> lnf --> head
 ```
 
-Pre-Norm block. Residual stream is un-normalized: `x = x + attn(ln_1(x))`, then `x = x + mlp(ln_2(x))`.
+In each Pre-Norm block, the residual stream itself is not normalized before the residual addition: `x = x + attn(ln_1(x))`, then `x = x + mlp(ln_2(x))`.
 
 ```mermaid
 flowchart TB
@@ -140,7 +140,7 @@ flowchart TB
   add2 --> xout
 ```
 
-Attention shapes. Scale `1/sqrt(64)`. Causal multi-head.
+The attention path uses causal multi-head attention with scale `1/sqrt(64)` and the following tensor shapes.
 
 ```mermaid
 flowchart LR
@@ -160,7 +160,7 @@ Tensor symbols `B`, `T`, `C`, `H`, `D`, `V` are defined in [`docs/tensor_convent
 
 GPT-2 byte-level BPE via `tiktoken.get_encoding("gpt2")`. Vocabulary size 50,257. End-of-text id **50,256**.
 
-Training ingest uses `encode_ordinary()` on document text (so a literal `<|endoftext|>` in the page is ordinary bytes) and appends one EOT as the document boundary. Manifests record this as `special_token_policy: encode_ordinary + appended EOT`. The training-machine tiktoken version was `0.14.0`.
+Data ingestion for training applies `encode_ordinary()` to document text (so a literal `<|endoftext|>` in a document is encoded as ordinary bytes) and appends one EOT token as the document boundary. Manifests record this as `special_token_policy: encode_ordinary + appended EOT`. The tiktoken version used in the training environment was `0.14.0`.
 
 Hub exports ship the official GPT-2 tokenizer files next to the `GPT2LMHeadModel` safetensors, so `transformers.AutoTokenizer` loads the same BPE.
 
@@ -204,7 +204,7 @@ Lifetime mix after this stage: FineWeb-Edu **50%** + FineWeb **45%** + OpenWebMa
 | OpenWebMath | `open-web-math/open-web-math` | `fde8ef8de2300f5e778f56261843dab89f230815` | 249,999,979 (250 shards) |
 | **Stage train total** | | | **2,499,995,275** |
 
-A draft plan that added SmolLM `python-edu` at 10% was **not** run. There is no code slice in v1.1.
+A draft plan that added SmolLM `python-edu` at 10% was **not** run. No programming-code data was included in v1.1.
 
 ```mermaid
 flowchart LR
@@ -214,17 +214,17 @@ flowchart LR
   v10 --> v11 --> life
 ```
 
-The 0.25B math slice exists so equations are not unseen. GSM8K is not in the evaluation protocol.
+The 0.25B math slice ensures that mathematical expressions are not entirely out-of-distribution. GSM8K is not in the evaluation protocol.
 
 ---
 
 ## 7. Training
 
-Config freeze: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json) (provisional). `scripts/train.py` does not load that JSON; production used equivalent CLI flags. Candidate A (`compile=false`, B=8, G=8) is the canonical recipe.
+Provisional recipe snapshot: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json). `scripts/train.py` does not load that JSON; production used equivalent CLI flags. Candidate A (`compile=false`, B=8, G=8) is the reference recipe.
 
-Tokens per optimizer step stay `8 × 8 × 1024` = **65,536**.
+Tokens per optimizer step were fixed at `8 × 8 × 1024` = **65,536**.
 
-Learning-rate path. v1.0: 2,000-step warmup, then cosine 6e-4 → 6e-5. v1.1 resumes at step 38,147: 1,000-step rewarm 6e-5 → 3e-4, then cosine to 6e-5.
+Learning-rate schedule. v1.0: 2,000-step warmup, then cosine 6e-4 → 6e-5. v1.1 resumed at step 38,147: 1,000-step rewarm 6e-5 → 3e-4, then cosine to 6e-5.
 
 ```mermaid
 flowchart LR
@@ -260,7 +260,7 @@ AdamW groups skip tied-parameter duplicates so `wte` and `lm_head` are not decay
 
 ### 7.2 Stage v1.1
 
-Resumed from `runs/main_2p5b/step-00038147.pt` (weights and optimizer). `schedule_origin_step` 38,147. First resume used `--reset-data-index` so the new mix starts at sample 0.
+Training resumed from `runs/main_2p5b/step-00038147.pt`, restoring both weights and optimizer state. `schedule_origin_step` was 38,147. The continuation was launched with `--reset-data-index` so the new mix started at its first sample.
 
 | Item | Value |
 | --- | --- |
@@ -271,7 +271,7 @@ Resumed from `runs/main_2p5b/step-00038147.pt` (weights and optimizer). `schedul
 | Other optimizer / batch fields | same as v1.0 |
 | `seed` | 1337 |
 
-**One FineWeb-Edu epoch, then a different mix.** The continuation leaves the Edu distribution on purpose. FineWeb-Edu validation CE rising during v1.1 is expected.
+**One FineWeb-Edu epoch, then a different mix.** The continuation intentionally shifts away from the FineWeb-Edu distribution. The rise in FineWeb-Edu validation CE during v1.1 is therefore expected.
 
 ---
 
@@ -290,15 +290,15 @@ Resumed from `runs/main_2p5b/step-00038147.pt` (weights and optimizer). `schedul
 
 The v1.1 `summary.json` field `training_only_tokens_per_sec` is **169,416**. That divides **lifetime** 5.0B tokens by this-stage train time. Stage tokens 2,500,001,792 / `train_elapsed_seconds` 29,513.24 s ≈ **84,708** tok/s, in line with v1.0.
 
-Peak allocation stayed near 9.5 GiB, so a 24 GB card has headroom at this batch shape. Hub ingest and shard packing added wall-clock before step 1 and are not in the GPU-hour totals.
+Peak allocation stayed near 9.5 GiB, so a 24 GB card has headroom at this batch shape. Hub ingestion and shard packing added preprocessing time before step 1 and are not included in the GPU-hour totals.
 
 ---
 
 ## 9. Language-model results
 
-After `train.py`, `scripts/write_whitepaper_snapshot.py` wrote copy-ready tables for v1.0 from `training_log` / `metrics.jsonl`. Numbers below come from that snapshot and from post-training evaluation JSON. **In-loop validation uses 131,072 tokens**, a subset of packed validation, not the full val split.
+After `train.py`, `scripts/write_whitepaper_snapshot.py` generated copy-ready tables for v1.0 from `training_log` / `metrics.jsonl`. The numbers below come from that snapshot and from post-training evaluation JSON. **In-loop validation uses 131,072 tokens**, a subset of packed validation, not the full val split.
 
-Uniform-over-vocab reference: ln(50,257) ≈ **10.8249**. Train loss starts near that line (10.9094 at step 1) and falls to 3.28.
+The cross-entropy baseline for a uniform distribution over the vocabulary is ln(50,257) ≈ **10.8249**. Train loss starts near this baseline (10.9094 at step 1) and falls to 3.28.
 
 ### 9.1 v1.0 training curve
 
@@ -322,11 +322,11 @@ Full FineWeb-Edu validation and HellaSwag validation were measured **after** tra
 | 15,259 | 1B | 3.479 / 32.43 | 27.20% | 27.71% |
 | 38,147 | 2.5B | 3.255 / 25.92 | 28.10% | **29.33%** |
 
-The later `english-lm-suite-v1` re-score of the same 2.5B checkpoint reports HellaSwag `acc_norm` **29.40%** (2,952 / 10,042). The 29.33% figure is the earlier standalone HellaSwag dump (`hellaswag-step-00038147.json`). Section 10 uses the suite number as the protocol official score.
+The later `english-lm-suite-v1` re-score of the same 2.5B checkpoint reports HellaSwag `acc_norm` **29.40%** (2,952 / 10,042). The 29.33% figure is the earlier standalone HellaSwag dump (`hellaswag-step-00038147.json`). Section 10 uses the suite result as the canonical score for this protocol.
 
 ### 9.3 v1.1 training curve
 
-Validation is still FineWeb-Edu while train leaves Edu.
+Validation remains on FineWeb-Edu while the training distribution shifts away from it.
 
 | Metric | Value | Step |
 | --- | --- | --- |
@@ -356,7 +356,7 @@ Tokenizers and pretraining data differ across models. **This is a baseline under
 
 Multiple-choice scoring encodes context and `" " + ending` separately, concatenates, left-truncates context if needed, and scores **choice tokens only**. `acc_raw` is sum log-likelihood; `acc_norm` is mean log-likelihood. LAMBADA splits on the last space and requires a greedy token match on the whole last word.
 
-Two forward paths share prompts and argmax rules: the GPT-2 path (basikGPT `.pt` and official `gpt2`, tiktoken `gpt2`) and `AutoModelForCausalLM` for SmolLM2 / Pythia / Qwen. Tokenization is not matched, so scores are protocol-comparable, not matched-token perplexity.
+Two forward paths share prompts and argmax rules. One handles basikGPT `.pt` checkpoints and official `gpt2` with the tiktoken `gpt2` tokenizer; the other uses `AutoModelForCausalLM` for SmolLM2, Pythia, and Qwen. Tokenization is not matched, so the scores are comparable under the protocol but do not represent matched-token perplexity.
 
 Checkpoints: v1.0 `runs/main_2p5b/step-00038147.pt`; v1.1 `runs/cont_5b_mix/step-00076294.pt`. Intermediate 100M / 500M / 1B checkpoints are not in this suite.
 
@@ -381,8 +381,8 @@ WG is acc_raw; other columns are the suite primary metric. Avg is the unweighted
 
 **Reading the scores.**
 
-- **v1.1 vs v1.0.** LAMBADA **+3.47 pp** (19.58 → 23.05): FineWeb prose moved last-word prediction in the intended direction. ARC-Easy **−4.50 pp** (43.01 → 38.51): the Edu-aligned science-question lead faded. HellaSwag −0.65 pp. PIQA and WinoGrande moved by less than 0.4 pp.
-- **vs official GPT-2 Small.** Same decoder, same tiktoken, same completion NLL. v1.0 is the only checkpoint that beats gpt2 on a primary metric: ARC-Easy **+4.88 pp**. LAMBADA stays well below gpt2 (v1.0 −11.35 pp, v1.1 −7.88 pp). HellaSwag is slightly below (v1.0 −0.97 pp, v1.1 −1.62 pp).
+- **v1.1 vs v1.0.** LAMBADA **+3.47 pp** (19.58 → 23.05): continuation on FineWeb coincided with improved last-word prediction. ARC-Easy **−4.50 pp** (43.01 → 38.51): the Edu-aligned science-question lead narrowed. HellaSwag fell by 0.65 pp. PIQA and WinoGrande moved by less than 0.4 pp.
+- **vs official GPT-2 Small.** The models use the same decoder architecture, tiktoken tokenizer, and completion-NLL scoring. v1.0 is the only checkpoint that beats gpt2 on a primary metric: ARC-Easy **+4.88 pp**. LAMBADA stays well below gpt2 (v1.0 −11.35 pp, v1.1 −7.88 pp). HellaSwag is slightly lower (v1.0 −0.97 pp, v1.1 −1.62 pp).
 - **HellaSwag ~29%.** Above chance 25%, in the same band as gpt2 and Pythia-160M, and far below SmolLM2-135M at 42.67%. Nearby parameter counts do not imply nearby data budgets.
 - **WinoGrande.** All eight models sit in 49.5–55.6%. At n=1,267 the standard error of a 50% rate is about 1.4 pp, so 50.51% and 50.83% are not distinguishable from chance.
 - **Size ladder.** SmolLM2-360M and Qwen2.5-0.5B sit clearly above the 124M GPT-2 class. That is the expected mix-and-scale gap.
@@ -412,14 +412,14 @@ Native `.pt` checkpoints load through the `basikgpt` package. Hub snapshots are 
 
 ### Limitations
 
-- 124M / 2.5B–5B tokens cannot match modern 135M models trained on much larger mixes.
-- The mix is English-centric web text plus a small math slice. No books-only corpus, dialogue, instruction data, or preference tuning.
+- A 124M model trained on 2.5B–5B tokens cannot be expected to match modern models trained on substantially larger and more diverse corpora, including the 135M comparison shown here.
+- The mix is English-centric web text plus a small math component. It contains no dedicated book corpus, dialogue data, instruction data, or preference tuning.
 - In-loop validation CE/PPL is a 131,072-token subset, not the full packed validation split.
 - FineWeb-Edu / FineWeb streaming used a sequential prefix (`--no-shuffle`), not a random sample of the full crawl.
-- PII handling is whatever the upstream FineWeb / FineWeb-Edu / OpenWebMath pipelines already applied.
+- No additional PII filtering was applied beyond the upstream FineWeb, FineWeb-Edu, and OpenWebMath dataset pipelines.
 - Training context is 1024 tokens.
 - v1.1 FineWeb-Edu val CE is worse than v1.0 because the val set stayed Edu.
-- Free generation was not archived for this document.
+- Free-form text generation samples were not archived for this document.
 
 ### Licenses
 
@@ -430,9 +430,9 @@ Code and exported weights are **Apache-2.0**. Dataset cards still apply to train
 | FineWeb-Edu | ODC-By 1.0 |
 | FineWeb | ODC-By 1.0 |
 | OpenWebMath | see Hub dataset card |
-| GPT-2 tokenizer / architecture | follows the public GPT-2 artifacts |
+| GPT-2 tokenizer / architecture | see the terms accompanying the public GPT-2 artifacts |
 
-This document does not choose a new license.
+This document does not introduce or impose any new licensing terms.
 
 ---
 
@@ -488,15 +488,15 @@ Recorded git SHAs (both dirty):
 | v1.0 train / post-hoc val | `95e63c325591a96c1a71a288f03742049a589d04` |
 | v1.1 train / english-lm-suite-v1 | `ff8b2c0284668c3333d268b27864460e2b1db5f7` |
 
-A dirty tree means the SHA is provenance, not a bitwise recipe lock.
+A dirty working tree means that the commit SHA records code provenance but does not provide a bitwise-reproducible snapshot of the complete training recipe.
 
 ---
 
 ## 13. Conclusion
 
-basikGPT-1 is a complete GPT-2 Small pretraining run: a verified 124,439,808-parameter decoder, GPT-2 BPE, a documented FineWeb-Edu 2.5B stage (20.09 tokens/parameter, 8.18 GPU hours, full-val PPL 25.92), a documented FineWeb+OpenWebMath continuation to 5B, and an in-repo zero-shot English suite.
+basikGPT-1 is a complete GPT-2 Small pretraining project comprising a verified 124,439,808-parameter decoder, GPT-2 BPE, a documented FineWeb-Edu 2.5B stage (20.09 tokens/parameter, 8.18 GPU hours, full-val PPL 25.92), a documented FineWeb+OpenWebMath continuation to 5B, and an in-repo zero-shot English suite.
 
-v1.0 sits next to official gpt2 on HellaSwag and above it on ARC-Easy; LAMBADA remains the largest gap. v1.1 closes part of that LAMBADA gap and gives back the ARC-Easy lead. Same-size public decoders in this protocol are close; 135M–0.5B models trained on larger modern mixes sit higher. That is the expected size-and-data ladder.
+v1.0 scores near official gpt2 on HellaSwag and above it on ARC-Easy; LAMBADA remains the largest gap. v1.1 closes part of that LAMBADA gap but loses the ARC-Easy advantage. Some older decoders of similar size occupy a broadly comparable range under this protocol, while SmolLM2-135M and the larger modern models score substantially higher. This pattern is consistent with differences in both model scale and training data.
 
 ---
 

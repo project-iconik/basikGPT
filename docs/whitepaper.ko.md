@@ -4,17 +4,17 @@
 
 | | |
 | --- | --- |
-| Authors | basikGPT Contributors |
-| Document version | 1.1 |
-| Date | 2026-08-29 |
-| Package | `basikgpt` 0.1.0 |
-| Production runs | `main_2p5b` (38,147 steps) → `cont_5b_mix` (76,294 steps) |
-| Weights | [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1) |
-| Code | [`project-iconik/basikGPT`](https://github.com/project-iconik/basikGPT) |
+| 저자 | basikGPT Contributors |
+| 문서 버전 | 1.1 |
+| 날짜 | 2026-08-29 |
+| 패키지 | `basikgpt` 0.1.0 |
+| 프로덕션 실행 | `main_2p5b`(38,147스텝) → `cont_5b_mix`(76,294스텝) |
+| 가중치 | [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1) |
+| 코드 | [`project-iconik/basikGPT`](https://github.com/project-iconik/basikGPT) |
 
-이 기술 백서는 **basikGPT-1**의 아키텍처, 토크나이저, 데이터 믹스, 완료된 프로덕션 사전학습 두 런, 언어모델 지표, 제로샷 English LM suite 비교를 기록한다.
+이 기술 백서는 **basikGPT-1**의 아키텍처, 토크나이저, 데이터 구성, 완료된 두 차례의 프로덕션 사전학습 실행, 언어 모델 지표, 제로샷 영어 언어 모델 평가 스위트 비교를 기록한다.
 
-2.5B 런의 기계 판독 표는 [`runs/main_2p5b/WHITEPAPER.md`](../runs/main_2p5b/WHITEPAPER.md)에 있다. 이 문서는 두 체크포인트의 서사 기록이다.
+2.5B 실행의 기계 생성 스냅샷 표는 [`runs/main_2p5b/WHITEPAPER.md`](../runs/main_2p5b/WHITEPAPER.md)에 있다. 본 문서는 두 체크포인트를 모두 다루는 종합 기술 보고서다.
 
 ---
 
@@ -27,9 +27,9 @@
 5. [토크나이저](#5-토크나이저)
 6. [데이터](#6-데이터)
 7. [학습](#7-학습)
-8. [컴퓨트](#8-컴퓨트)
+8. [계산 자원](#8-계산-자원)
 9. [언어모델 결과](#9-언어모델-결과)
-10. [English LM suite](#10-english-lm-suite)
+10. [영어 언어 모델 평가 스위트](#10-영어-언어-모델-평가-스위트)
 11. [용도, 한계, 라이선스](#11-용도-한계-라이선스)
 12. [재현성](#12-재현성)
 13. [결론](#13-결론)
@@ -40,48 +40,48 @@
 
 ## 1. 초록
 
-basikGPT-1은 PyTorch로 처음부터 학습한 **124,439,808** 파라미터 GPT-2 Small decoder-only Transformer다. 프로덕션 두 단계는 단일 NVIDIA RTX PRO 4500 Blackwell에서 돌렸다.
+basikGPT-1은 PyTorch로 처음부터 학습한 고유 파라미터 **124,439,808**개의 GPT-2 Small 디코더 전용 Transformer다. 두 프로덕션 단계는 모두 단일 NVIDIA RTX PRO 4500 Blackwell에서 실행했다.
 
-- **v1.0** (`main_2p5b`): FineWeb-Edu **2,500,001,792** 토큰(약 **20.09** tokens/parameter)을 **29,462.59 s**(8.18 GPU hours). 학습 후 full validation 교차엔트로피 / perplexity는 **3.2548 / 25.9151**. 프로토콜 HellaSwag `acc_norm`은 **29.40%**.
-- **v1.1** (`cont_5b_mix`): v1.0을 FineWeb 2.25B + OpenWebMath 0.25B로 2.5B 토큰 더 이어감. 생애 토큰 **5,000,003,584**(약 **40.18** tokens/parameter). 이 단계 벽시계는 **29,593.20 s**(8.22 GPU hours). LAMBADA는 **+3.47 pp**, ARC-Easy는 **−4.50 pp**.
+- **v1.0** (`main_2p5b`): FineWeb-Edu **2,500,001,792**토큰(파라미터당 약 **20.09**토큰)을 **29,462.59초**(8.18 GPU 시간) 동안 학습했다. 학습 후 전체 검증 교차엔트로피와 퍼플렉시티는 각각 **3.2548**과 **25.9151**이며, 평가 스위트 프로토콜에서 측정한 HellaSwag `acc_norm`은 **29.40%**다.
+- **v1.1** (`cont_5b_mix`): v1.0 체크포인트에서 시작해 FineWeb 2.25B + OpenWebMath 0.25B로 2.5B토큰을 추가 학습했다. 누적 토큰 수는 **5,000,003,584**(파라미터당 약 **40.18**토큰)이며, 이 단계의 실제 경과 시간은 **29,593.20초**(8.22 GPU 시간)다. LAMBADA는 **+3.47 pp** 상승했고 ARC-Easy는 **−4.50 pp** 하락했다.
 
-가중치는 Hugging Face Hub의 `GPT2LMHeadModel` 내보내기다: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1).
+가중치는 `GPT2LMHeadModel` 형식으로 Hugging Face Hub에 공개되어 있다: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1).
 
-모델은 사전학습된 **base**다. 비교표는 공유 프로토콜 베이스라인이다.
+본 모델은 사전학습된 **베이스(base) 모델**이다. 비교표는 공통 프로토콜에 따른 기준 결과다.
 
 ---
 
 ## 2. 서론
 
-공개 GPT-2 Small 체크포인트는 이미 있다. 그러나 참조 로짓 패리티가 있는 아키텍처, 문서화된 공개 코퍼스 파이프라인, packed uint16 샤드, 동결된 단일 GPU 레시피, 저장소 안 평가 스위트라는 한 세트는 교육과 리버스 엔지니어링에 여전히 쓸모가 있다.
+공개 GPT-2 Small 체크포인트는 이미 있다. 그러나 기준 모델과의 로짓 일치가 검증된 아키텍처, 문서화된 공개 코퍼스 파이프라인, 패킹된 uint16 샤드, 기록된 단일 GPU 학습 레시피, 저장소 내 평가 스위트로 구성된 통합 스택은 교육과 리버스 엔지니어링에 여전히 유용하다.
 
-basikGPT-1은 다음 세 제약으로 처음부터 학습했다.
+basikGPT-1은 다음 세 가지 제약 아래 처음부터 학습했다.
 
-- **아키텍처 충실도.** 디코더는 GPT-2 Small과 같다: 12 Pre-Norm 블록, 12 heads, `d_model` 768, 학습된 절대 위치, LayerNorm, GPT-2 GELU, tied embeddings, bias. 공식 `openai-community/gpt2` 가중치는 변환 경로로 로드되며 문서화된 허용오차 안에서 로짓이 맞는다.
-- **1단계는 Chinchilla 근처의 고유 데이터.** Hoffmann 등은 대략 20 tokens/parameter를 제안한다. v1.0은 124.4M 고유 파라미터에 FineWeb-Edu(`sample-10BT`)를 한 번만 본 2.50B 토큰을 썼다.
-- **단일 24–32 GB GPU.** 시퀀스 길이 1024, micro-batch 8, gradient accumulation 8, BF16, SDPA로 실측 할당은 약 9.5 GiB다.
+- **아키텍처 충실도.** 디코더는 GPT-2 Small과 동일하게 사전 정규화 블록 12개, 어텐션 헤드 12개, `d_model` 768, 학습 가능한 절대 위치 임베딩, LayerNorm, GPT-2 GELU, 공유 임베딩, 편향을 사용한다. 공식 `openai-community/gpt2` 가중치는 변환 경로를 통해 로드할 수 있으며, 로짓은 문서화된 허용오차 안에서 일치한다.
+- **1단계의 Chinchilla 계산 최적비에 가까운 데이터 규모.** Hoffmann 등은 파라미터당 약 20토큰을 제안한다. v1.0은 고유 파라미터 124.4M개에 대해 FineWeb-Edu(`sample-10BT`)를 한 번 순차적으로 통과하며 2.50B토큰을 사용했다.
+- **단일 24–32 GB GPU.** 시퀀스 길이 1024, 마이크로배치 8, 그래디언트 누적 8, BF16, SDPA를 사용했으며, 실측 최대 메모리 할당량은 약 9.5 GiB였다.
 
-2단계는 문서화된 연속학습이다. SmolLM `python-edu`를 넣던 초기 믹스안은 **실행하지 않았다**. v1.1은 FineWeb + OpenWebMath만 썼다.
+2단계는 문서화된 연속 학습이다. SmolLM `python-edu`를 포함했던 초기 데이터 구성 초안은 **실행하지 않았다**. v1.1에는 FineWeb과 OpenWebMath만 사용했다.
 
 ---
 
 ## 3. 관련 연구
 
-백본은 GPT-2 [Radford et al., 2019]를 따른다: Pre-Norm 잔차 블록, 학습된 절대 위치 임베딩, 인과적 multi-head self-attention, tied embedding / LM head. 학습 스택은 현대화되어 있다(AdamW, cosine decay, BF16, PyTorch SDPA). 충실도 계층은 [`docs/pretraining_recipe.md`](pretraining_recipe.md)에 적혀 있다.
+백본은 GPT-2 [Radford et al., 2019]를 따른다. 사전 정규화 잔차 블록, 학습 가능한 절대 위치 임베딩, 인과적 다중 헤드 자기 어텐션, 입력 임베딩과 LM 헤드의 가중치 공유를 사용한다. 학습 스택에는 AdamW, 코사인 감쇠, BF16, PyTorch SDPA 등 현대적인 방식을 적용했다. 호환성 수준은 [`docs/pretraining_recipe.md`](pretraining_recipe.md)에 설명되어 있다.
 
-1단계 토큰 예산은 Chinchilla 계산 최적비(대략 20 tokens/parameter) [Hoffmann et al., 2022]를 따른다. 실행된 v1.0 비는 FineWeb-Edu 2.5B 토큰 1패스에서 20.09 tokens/parameter다.
+1단계 토큰 예산은 Chinchilla 계산 최적비(파라미터당 약 20토큰) [Hoffmann et al., 2022]를 따른다. 실제 v1.0의 비율은 FineWeb-Edu 2.5B토큰을 한 번 통과했을 때 파라미터당 20.09토큰이다.
 
-사전학습 데이터는 v1.0이 FineWeb-Edu [Penedo et al. / HuggingFaceFW], 연속이 FineWeb과 OpenWebMath [Paster et al.]다. 상세와 라이선스는 [§6](#6-데이터)와 [§11](#11-용도-한계-라이선스)에 있다.
+사전학습 데이터로 v1.0 단계에서는 FineWeb-Edu [Penedo et al. / HuggingFaceFW]를, 연속 학습 단계에서는 FineWeb과 OpenWebMath [Paster et al.]를 사용했다. 자세한 내용과 라이선스는 [§6](#6-데이터)과 [§11](#11-용도-한계-라이선스)에 제시한다.
 
-평가 쪽에서 공식 GPT-2 Small은 동일 아키텍처 참조다. Pythia [Biderman et al., 2023], SmolLM2, Qwen2.5-0.5B는 저장소 안 프로토콜 `english-lm-suite-v1`로 측정했고 논문 발표 숫자는 섞지 않았다. 토큰 수와 아키텍처는 **맞추지 않았다**. 공유 채점 규칙 아래의 베이스라인이다.
+평가에서는 공식 GPT-2 Small을 동일 아키텍처의 기준 모델로 사용했다. Pythia [Biderman et al., 2023], SmolLM2, Qwen2.5-0.5B는 저장소 내 프로토콜 `english-lm-suite-v1`로 측정했으며, 다른 논문에 보고된 수치는 함께 사용하지 않았다. 토큰 수와 아키텍처는 **일치시키지 않았다**. 이는 공통 채점 규칙에 따른 기준 결과다.
 
 ---
 
 ## 4. 모델
 
-프리셋은 `src/basikgpt/config.py`의 `gpt2_small`. GPT-2 인과 디코더: 토큰 임베딩, 학습된 위치 임베딩, Pre-Norm Transformer 블록 12개, 최종 LayerNorm, LM head. LM head 가중치는 임베딩 행렬과 같다(`tie_word_embeddings=true`)므로 50,257 × 768 표는 한 번만 센다(**38,597,376** 고유 파라미터). 분해는 [부록](#a1-고유-파라미터-분해)에 있다.
+`gpt2_small` 프리셋은 `src/basikgpt/config.py`에 정의되어 있다. GPT-2 인과 디코더는 토큰 임베딩, 학습 가능한 위치 임베딩, 사전 정규화 Transformer 블록 12개, 최종 LayerNorm, LM 헤드로 구성된다. LM 헤드 가중치는 임베딩 행렬과 공유되므로(`tie_word_embeddings=true`), 50,257 × 768 가중치 테이블은 고유 파라미터로 한 번만 집계한다(**38,597,376**개). 자세한 파라미터 내역은 [부록](#a1-고유-파라미터-분해)에 제시한다.
 
-| Field | Value |
+| 항목 | 값 |
 | --- | --- |
 | Unique parameters | 124,439,808 |
 | `vocab_size` | 50,257 |
@@ -92,19 +92,19 @@ basikGPT-1은 다음 세 제약으로 처음부터 학습했다.
 | `d_ff` (`intermediate_size`) | 3,072 |
 | `context_length` | 1,024 |
 | LayerNorm `eps` | 1e-5 |
-| Attention / MLP / LayerNorm bias | true (`lm_head` bias false) |
+| 어텐션 / MLP / LayerNorm 편향 | true (`lm_head` 편향 false) |
 | `tie_word_embeddings` | true |
 | Activation | GELU tanh approximation |
 | Position encoding | learned absolute |
 | Attention | causal multi-head self-attention (not GQA) |
-| Training sequence length | **1024** |
-| Training dropout | **0.0** (`GPTConfig` default is 0.1; pretraining CLIs override) |
+| 학습 시퀀스 길이 | **1024** |
+| 학습 드롭아웃 | **0.0** (`GPTConfig` 기본값은 0.1이며 학습 CLI에서 덮어씀) |
 
-**왜 이 선택인가.** 참조 패리티를 검증할 때까지 2019 GPT-2 Small 위상을 동결한다. 잔차 투영은 GPT-2 스케일 초기화 `std = 0.02 / sqrt(2 * n_layers)`를 쓴다. Attention은 스케일 `1/sqrt(64)`의 scaled dot-product다. 학습은 SDPA 백엔드, 검증용 eager 경로가 있다.
+**왜 이 선택인가.** 구현 과정에서는 기준 모델과의 일치를 확립하기 위해 2019년 GPT-2 Small의 원형 구조를 유지했다. 잔차 투영에는 GPT-2의 스케일 조정 초기화 `std = 0.02 / sqrt(2 * n_layers)`를 사용한다. 어텐션에는 스케일 `1/sqrt(64)`의 스케일드 닷 프로덕트를 사용한다. 학습에는 SDPA 백엔드를 사용하며, 검증용 eager 경로도 제공한다.
 
-**컨텍스트 길이.** 위치는 1024만 할당·학습한다. RoPE 표도, 쓰지 않는 긴 컨텍스트 예비도 없다.
+**컨텍스트 길이.** 위치 임베딩은 1,024개 위치까지만 할당하고 학습한다. RoPE 테이블이나 더 긴 컨텍스트를 위한 미사용 영역은 확보하지 않는다.
 
-디코더 스택. 고유 파라미터 124,439,808. `tie_word_embeddings=true`. 학습 dropout 0.0.
+디코더 스택의 고유 파라미터 수는 124,439,808개이며, `tie_word_embeddings=true`를 사용한다. 학습 시 드롭아웃은 0.0이었다.
 
 ```mermaid
 flowchart TB
@@ -121,7 +121,7 @@ flowchart TB
   addX --> blocks --> lnf --> head
 ```
 
-Pre-Norm 블록. 잔차 스트림은 정규화하지 않는다: `x = x + attn(ln_1(x))`, 이어서 `x = x + mlp(ln_2(x))`.
+각 사전 정규화 블록에서 잔차 스트림 자체는 잔차를 더하기 전에 정규화하지 않는다: `x = x + attn(ln_1(x))`, 이어서 `x = x + mlp(ln_2(x))`.
 
 ```mermaid
 flowchart TB
@@ -140,7 +140,7 @@ flowchart TB
   add2 --> xout
 ```
 
-Attention 형상. 스케일 `1/sqrt(64)`. 인과적 multi-head.
+어텐션 경로는 스케일 `1/sqrt(64)`의 인과적 다중 헤드 어텐션을 사용하며, 텐서 형상은 다음과 같다.
 
 ```mermaid
 flowchart LR
@@ -152,23 +152,23 @@ flowchart LR
   x --> qkv --> split --> scores --> merge
 ```
 
-텐서 기호 `B`, `T`, `C`, `H`, `D`, `V`는 [`docs/tensor_conventions.md`](tensor_conventions.md)에 정의한다.
+텐서 기호 `B`, `T`, `C`, `H`, `D`, `V`는 [`docs/tensor_conventions.md`](tensor_conventions.md)에 정의되어 있다.
 
 ---
 
 ## 5. 토크나이저
 
-GPT-2 byte-level BPE(`tiktoken.get_encoding("gpt2")`). 어휘 50,257. End-of-text id **50,256**.
+GPT-2 바이트 수준 BPE(`tiktoken.get_encoding("gpt2")`)를 사용한다. 어휘 크기는 50,257이며, 문서 종료 토큰 ID는 **50,256**이다.
 
-학습 수집은 문서 본문에 `encode_ordinary()`를 쓰고(페이지 안의 리터럴 `<|endoftext|>`는 일반 바이트), 문서 경계로 EOT를 하나 붙인다. 매니페스트는 `special_token_policy: encode_ordinary + appended EOT`로 기록한다. 학습 기기의 tiktoken은 `0.14.0`이었다.
+학습 데이터 전처리에서는 문서 본문에 `encode_ordinary()`를 적용한다. 따라서 문서에 포함된 리터럴 문자열 `<|endoftext|>`는 일반 바이트열로 인코딩된다. 각 문서 경계에는 EOT 토큰을 하나 추가한다. 매니페스트에는 이를 `special_token_policy: encode_ordinary + appended EOT`로 기록한다. 학습 환경에서 사용한 tiktoken 버전은 `0.14.0`이었다.
 
-Hub 내보내기는 공식 GPT-2 토크나이저 파일을 `GPT2LMHeadModel` safetensors 옆에 두므로 `transformers.AutoTokenizer`는 같은 BPE를 읽는다.
+Hub 내보내기에는 공식 GPT-2 토크나이저 파일이 `GPT2LMHeadModel` safetensors와 함께 포함되므로, `transformers.AutoTokenizer`는 동일한 BPE를 로드한다.
 
 ---
 
 ## 6. 데이터
 
-Hub 스트림은 저장소 파이프라인(`scripts/prepare_fineweb_edu.py`, `scripts/prepare_hf_corpus.py`)과 토큰 예산을 쓴다. 문서는 토큰화한 뒤 목표 1,000,000 토큰의 **uint16** `.npy` 샤드로 팩하고 SHA-256 체크섬을 단다. train/validation 분할은 `sha256-hash-bucket-v1`(salt `basikgpt-fineweb-edu-v1`). 샤드는 순차 읽기(`--no-shuffle`)라 실행된 prefix를 재현할 수 있다.
+Hub 스트림은 저장소의 데이터 파이프라인(`scripts/prepare_fineweb_edu.py`, `scripts/prepare_hf_corpus.py`)과 지정된 토큰 예산에 따라 처리한다. 문서를 토큰화한 뒤 목표 크기가 1,000,000토큰인 **uint16** `.npy` 샤드로 패킹하고 SHA-256 체크섬을 기록한다. 학습/검증 분할에는 `sha256-hash-bucket-v1`(솔트 `basikgpt-fineweb-edu-v1`)을 사용한다. 샤드를 순차적으로 읽기 때문에(`--no-shuffle`) 실제 학습에 사용된 데이터의 선두 구간을 재현할 수 있다.
 
 ```mermaid
 flowchart LR
@@ -181,30 +181,30 @@ flowchart LR
 
 ### 6.1 v1.0 믹스 (`main_2p5b`)
 
-`HuggingFaceFW/fineweb-edu` `sample-10BT`, revision `87f09149ef4734204d70ed1d046ddc9ca3f2b8f9`, 라이선스 **ODC-By 1.0**. 로컬 샤드: `data/fineweb-edu-2p5b/`.
+이 데이터는 `HuggingFaceFW/fineweb-edu`의 `sample-10BT` 설정에서 구축했다. 리비전은 `87f09149ef4734204d70ed1d046ddc9ca3f2b8f9`, 라이선스는 **ODC-By 1.0**이며, 로컬 샤드는 `data/fineweb-edu-2p5b/`에 저장했다.
 
-| Manifest field | Value |
+| 매니페스트 항목 | 값 |
 | --- | --- |
-| Train / validation documents | 2,421,794 / 5,007 |
-| Train / validation tokens | 2,499,999,466 / 4,986,319 |
-| Train / validation shards | 2,500 / 5 |
-| Packed train sequences (T=1024) | 2,440,000 |
-| Discarded train tail tokens | 1,436,966 |
-| Validation fraction | 0.005 |
+| 학습 / 검증 문서 | 2,421,794 / 5,007 |
+| 학습 / 검증 토큰 | 2,499,999,466 / 4,986,319 |
+| 학습 / 검증 샤드 | 2,500 / 5 |
+| 패킹된 학습 시퀀스(T=1024) | 2,440,000 |
+| 폐기한 학습 말단 토큰 | 1,436,966 |
+| 검증 비율 | 0.005 |
 
-v1.0은 2,500,000,000 토큰을 요청했고 실행은 **2,500,001,792**(+1,792 overshoot; 38,147 × 65,536).
+v1.0의 요청 토큰 수는 2,500,000,000이었으나 실제로는 **2,500,001,792**토큰을 처리해 목표보다 1,792토큰 초과했다(38,147 × 65,536).
 
-### 6.2 v1.1 연속 믹스 (`cont_5b_mix`)
+### 6.2 v1.1 연속 학습 데이터 구성 (`cont_5b_mix`)
 
-이 단계 이후 생애 믹스: FineWeb-Edu **50%** + FineWeb **45%** + OpenWebMath **5%**. 연속 자체는 FineWeb 2.25B + OpenWebMath 0.25B이며, 오프라인으로 **OpenWebMath 샤드 1 + FineWeb 샤드 9 / 주기**, 그다음 FineWeb tail(`math1_fineweb9`). validation은 v1.0 FineWeb-Edu holdout을 유지한다.
+이 단계 이후의 누적 데이터 구성은 FineWeb-Edu **50%** + FineWeb **45%** + OpenWebMath **5%**다. 연속 학습 단계 자체는 FineWeb 2.25B + OpenWebMath 0.25B로 구성된다. 오프라인에서 주기마다 **OpenWebMath 샤드 1개 + FineWeb 샤드 9개**를 교차 배치한 뒤 마지막에 FineWeb 구간을 덧붙였다(`math1_fineweb9`). 검증 데이터는 v1.0의 FineWeb-Edu 홀드아웃을 그대로 유지했다.
 
-| Source | Hub | Revision | Tokens in this stage |
+| 소스 | Hub | 리비전 | 본 단계 토큰 수 |
 | --- | --- | --- | --- |
 | FineWeb | `HuggingFaceFW/fineweb` `sample-10BT` | `9bb295ddab0e05d785b879661af7260fed5140fc` | 2,249,995,296 (2,250 shards) |
 | OpenWebMath | `open-web-math/open-web-math` | `fde8ef8de2300f5e778f56261843dab89f230815` | 249,999,979 (250 shards) |
-| **Stage train total** | | | **2,499,995,275** |
+| **단계별 학습 합계** | | | **2,499,995,275** |
 
-SmolLM `python-edu`를 10% 넣던 초안은 **실행하지 않았다**. v1.1에 코드 슬라이스는 없다.
+SmolLM `python-edu`를 10% 포함했던 초안은 **실행하지 않았다**. v1.1에는 프로그래밍 코드 데이터가 포함되지 않았다.
 
 ```mermaid
 flowchart LR
@@ -214,17 +214,17 @@ flowchart LR
   v10 --> v11 --> life
 ```
 
-0.25B 수학 슬라이스는 수식이 미지의 분포가 되지 않게 하려는 것이다. GSM8K는 평가 프로토콜에 없다.
+0.25B 규모의 수학 데이터는 수학 표현이 학습 분포에서 완전히 벗어나지 않도록 포함했다. GSM8K는 평가 프로토콜에 포함하지 않았다.
 
 ---
 
 ## 7. 학습
 
-설정 동결: [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json)(provisional). `scripts/train.py`는 그 JSON을 읽지 않는다. 프로덕션은 동등 CLI 플래그를 썼다. 정본 레시피는 Candidate A(`compile=false`, B=8, G=8).
+잠정 학습 레시피 스냅샷은 [`configs/gpt2_small_fineweb_edu_single_gpu.json`](../configs/gpt2_small_fineweb_edu_single_gpu.json)에 기록되어 있다. `scripts/train.py`는 이 JSON을 직접 읽지 않으며, 프로덕션 실행에서는 이에 상응하는 CLI 플래그를 사용했다. 기준 학습 레시피는 Candidate A(`compile=false`, B=8, G=8)다.
 
-optimizer step당 토큰은 항상 `8 × 8 × 1024` = **65,536**.
+옵티마이저 스텝당 토큰 수는 `8 × 8 × 1024` = **65,536**으로 고정했다.
 
-학습률 경로. v1.0: 2,000 스텝 워밍업 후 cosine 6e-4 → 6e-5. v1.1은 step 38,147에서 재개: 1,000 스텝 rewarm 6e-5 → 3e-4, 이후 cosine으로 6e-5.
+학습률 스케줄은 다음과 같다. v1.0에서는 2,000스텝 동안 워밍업한 뒤 6e-4에서 6e-5까지 코사인 감쇠를 적용했다. v1.1은 38,147스텝에서 재개했으며, 1,000스텝 동안 6e-5에서 3e-4까지 다시 워밍업한 뒤 6e-5까지 코사인 감쇠를 적용했다.
 
 ```mermaid
 flowchart LR
@@ -235,12 +235,12 @@ flowchart LR
   w0 --> c0 --> rw --> c1
 ```
 
-### 7.1 Stage v1.0
+### 7.1 v1.0 단계
 
-| Item | Value |
+| 항목 | 값 |
 | --- | --- |
 | `max_steps` | 38,147 |
-| Token budget (executed) | 2,500,001,792 |
+| 실제 토큰 수 | 2,500,001,792 |
 | `sequence_length` | 1024 |
 | `micro_batch_size` × `gradient_accumulation_steps` | 8 × 8 |
 | Optimizer | AdamW |
@@ -250,70 +250,70 @@ flowchart LR
 | `weight_decay` | 0.1 on rank-2 matrices (124,318,464 params); 0 on 1D (121,344) |
 | `max_grad_norm` | 1.0 |
 | `precision` | bf16 |
-| `sdpa_kernel` | auto |
-| `compile` | false |
+| `sdpa_kernel` | `auto`(자동 선택) |
+| `compile` | `false`(비활성화) |
 | `seed` | 1337 |
 | `eval_interval` / `eval_tokens` | 1,526 / 131,072 |
-| Checkpoint steps | 1,526, 7,630, 15,259, 38,147 |
+| 체크포인트 스텝 | 1,526, 7,630, 15,259, 38,147 |
 
-AdamW 그룹은 tied 파라미터 중복을 건너뛰어 `wte`와 `lm_head`를 두 번 감쇠하지 않는다.
+AdamW 파라미터 그룹은 공유 파라미터의 중복을 제외하므로 `wte`와 `lm_head`에 가중치 감쇠를 이중으로 적용하지 않는다.
 
-### 7.2 Stage v1.1
+### 7.2 v1.1 단계
 
-`runs/main_2p5b/step-00038147.pt`에서 가중치와 optimizer를 재개. `schedule_origin_step` 38,147. 첫 resume은 `--reset-data-index`로 새 믹스를 sample 0부터 시작한다.
+`runs/main_2p5b/step-00038147.pt`에서 가중치와 옵티마이저 상태를 복원해 학습을 재개했다. `schedule_origin_step`은 38,147이었다. 연속 학습을 시작할 때 `--reset-data-index`를 사용해 새 데이터 구성을 첫 샘플부터 읽었다.
 
-| Item | Value |
+| 항목 | 값 |
 | --- | --- |
-| Final step | 76,294 |
-| Lifetime tokens | 5,000,003,584 (+3,584 overshoot) |
-| This-stage steps / tokens | 38,147 / 2,500,001,792 |
-| LR | rewarm 6e-5 → 3e-4 over 1,000 steps, then cosine to 6e-5 |
-| Other optimizer / batch fields | same as v1.0 |
+| 최종 스텝 | 76,294 |
+| 누적 토큰 | 5,000,003,584(목표보다 3,584토큰 초과) |
+| 본 단계 스텝 / 토큰 | 38,147 / 2,500,001,792 |
+| LR | 1,000스텝 동안 6e-5 → 3e-4로 재워밍업한 후 6e-5까지 코사인 감쇠 |
+| 기타 옵티마이저 / 배치 필드 | v1.0과 동일 |
 | `seed` | 1337 |
 
-**FineWeb-Edu 한 에포크 뒤, 다른 믹스.** 연속은 의도적으로 Edu 분포를 떠난다. v1.1 동안 FineWeb-Edu validation CE가 오르는 것은 예상이다.
+**FineWeb-Edu 한 에포크 뒤 다른 데이터 구성으로 전환.** 연속 학습 단계에서는 의도적으로 FineWeb-Edu와 다른 데이터 분포를 사용했다. 따라서 v1.1에서 FineWeb-Edu 검증 CE가 상승하는 것은 예상된 결과다.
 
 ---
 
-## 8. 컴퓨트
+## 8. 계산 자원
 
-| Field | v1.0 | v1.1 (this stage) |
+| 항목 | v1.0 | v1.1(본 단계) |
 | --- | --- | --- |
-| GPU | NVIDIA RTX PRO 4500 Blackwell | same |
-| VRAM | 33,685,569,536 bytes (~31.37 GiB) | same |
-| PyTorch / CUDA (torch) / driver | 2.8.0+cu128 / 12.8 / 580.159.04 | same |
+| GPU | NVIDIA RTX PRO 4500 Blackwell | 동일 |
+| VRAM | 33,685,569,536 bytes (~31.37 GiB) | 동일 |
+| PyTorch / CUDA (torch) / driver | 2.8.0+cu128 / 12.8 / 580.159.04 | 동일 |
 | Cloud | RunPod | RunPod |
 | Wall-clock (s) | 29,462.59 | 29,593.20 |
 | GPU hours | 8.1841 | 8.2203 |
 | Training-only tok/s | 85,076 | ~84,700 |
 | Peak CUDA allocated (MiB) | 9,523.61 | 9,528.69 |
 
-v1.1 `summary.json`의 `training_only_tokens_per_sec`는 **169,416**이다. **생애** 5.0B 토큰을 이 단계 학습 시간으로 나눈 값이다. 단계 토큰 2,500,001,792 / `train_elapsed_seconds` 29,513.24 s ≈ **84,708** tok/s로 v1.0과 맞는다.
+v1.1 `summary.json`의 `training_only_tokens_per_sec`는 **169,416**이다. 이는 **누적** 5.0B토큰을 이 단계의 학습 시간으로 나눈 값이다. 본 단계의 토큰 수 2,500,001,792를 `train_elapsed_seconds` 29,513.24초로 나누면 약 **84,708 tok/s**로, v1.0과 일치한다.
 
-피크 할당은 약 9.5 GiB에 머물렀으므로 이 배치 형태에서는 24 GB 카드에 여유가 있다. Hub 수집과 샤드 팩 벽시계는 step 1 이전이며 GPU-hour 합계에 넣지 않는다.
+최대 메모리 할당량은 약 9.5 GiB에 머물렀으므로 이 배치 구성에서는 24 GB 카드에도 여유가 있다. Hub 데이터 수집과 샤드 패킹은 첫 학습 스텝 전에 수행됐으며, 해당 시간은 GPU 사용 시간 합계에 포함하지 않았다.
 
 ---
 
 ## 9. 언어모델 결과
 
-`train.py` 이후 `scripts/write_whitepaper_snapshot.py`가 v1.0 복사용 표를 `training_log` / `metrics.jsonl`에서 썼다. 아래 숫자는 그 스냅샷과 학습 후 평가 JSON에서 가져온다. **루프 안 validation은 131,072 토큰**이며 packed validation 전체가 아니다.
+`train.py` 실행 후 `scripts/write_whitepaper_snapshot.py`가 `training_log` / `metrics.jsonl`에서 v1.0용 재사용 가능 표를 생성했다. 아래 수치는 이 스냅샷과 학습 후 평가 JSON에 기반한다. **학습 루프 내 검증은 131,072토큰**을 사용하며, 패킹된 검증 데이터 전체를 사용하지는 않는다.
 
-균일 어휘 참조: ln(50,257) ≈ **10.8249**. train loss는 step 1에서 그 선 근처(10.9094)로 시작해 3.28까지 내려간다.
+어휘에 대한 균등분포의 교차엔트로피 기준값은 ln(50,257) ≈ **10.8249**다. 학습 손실은 첫 스텝에서 이 기준값에 가까운 10.9094로 시작해 3.28까지 감소한다.
 
 ### 9.1 v1.0 학습 곡선
 
-| Metric | Value | Step |
+| 지표 | 값 | 스텝 |
 | --- | --- | --- |
-| first train loss | 10.9094 | 1 |
-| last train loss | 3.2830 | 38,147 |
-| min in-loop val CE / PPL | 3.3052 / 27.2551 | 36,624 |
-| full val CE / PPL | 3.2548 / 25.9151 | 38,147 (post-hoc) |
-| tokens processed | 2,500,001,792 | |
-| wall time (s) | 29,462.59 | |
+| 첫 학습 손실 | 10.9094 | 1 |
+| 마지막 학습 손실 | 3.2830 | 38,147 |
+| 최소 루프 내 검증 CE / PPL | 3.3052 / 27.2551 | 36,624 |
+| 전체 검증 CE / PPL | 3.2548 / 25.9151 | 38,147(사후 평가) |
+| 처리한 토큰 | 2,500,001,792 | |
+| 실제 경과 시간(초) | 29,462.59 | |
 
-### 9.2 v1.0 체크포인트 사다리 (사후)
+### 9.2 v1.0 단계별 체크포인트 결과(사후 평가)
 
-Full FineWeb-Edu validation과 HellaSwag validation은 번호 붙은 네 체크포인트에 대해 학습 **후**에 측정했다. 학습 루프 안이 아니다. `step-final.pt`는 step 38,147과 같다.
+전체 FineWeb-Edu 검증과 HellaSwag 검증은 네 개의 지정 체크포인트에서 학습 **완료 후** 측정했으며, 학습 루프 내 평가는 아니다. `step-final.pt`는 38,147스텝 체크포인트와 동일하다.
 
 | Step | Tokens (approx.) | Full val CE / PPL | HellaSwag acc_raw | HellaSwag acc_norm |
 | --- | ---: | ---: | ---: | ---: |
@@ -322,31 +322,31 @@ Full FineWeb-Edu validation과 HellaSwag validation은 번호 붙은 네 체크�
 | 15,259 | 1B | 3.479 / 32.43 | 27.20% | 27.71% |
 | 38,147 | 2.5B | 3.255 / 25.92 | 28.10% | **29.33%** |
 
-이후 `english-lm-suite-v1` 재채점에서 같은 2.5B 체크포인트의 HellaSwag `acc_norm`은 **29.40%**(2,952 / 10,042). 29.33%는 앞선 단독 HellaSwag 덤프(`hellaswag-step-00038147.json`)다. 10절은 스위트 값을 프로토콜 공식 점수로 쓴다.
+이후 `english-lm-suite-v1`로 같은 2.5B 체크포인트를 다시 채점했을 때 HellaSwag `acc_norm`은 **29.40%**(2,952 / 10,042)였다. 29.33%는 이전의 독립 HellaSwag 결과 파일(`hellaswag-step-00038147.json`)에 기록된 값이다. 10절에서는 평가 스위트 결과를 이 프로토콜의 기준 점수로 사용한다.
 
 ### 9.3 v1.1 학습 곡선
 
-validation은 FineWeb-Edu로 남고 train은 Edu를 떠난다.
+검증 데이터는 FineWeb-Edu로 유지했지만, 학습 데이터 분포는 FineWeb-Edu에서 벗어났다.
 
-| Metric | Value | Step |
+| 지표 | 값 | 스텝 |
 | --- | --- | --- |
-| first train loss (this stage) | 3.8090 | 38,150 |
-| last train loss | 3.5349 | 76,294 |
-| min in-loop val CE / PPL | 3.3214 / 27.6990 | 38,150 |
-| final in-loop val CE | 3.4710 | 76,294 |
-| lifetime tokens | 5,000,003,584 | |
+| 첫 학습 손실(본 단계) | 3.8090 | 38,150 |
+| 마지막 학습 손실 | 3.5349 | 76,294 |
+| 최소 루프 내 검증 CE / PPL | 3.3214 / 27.6990 | 38,150 |
+| 최종 루프 내 검증 CE | 3.4710 | 76,294 |
+| 누적 토큰 | 5,000,003,584 | |
 
-Edu val CE 3.32 → 3.47 상승은 예상된 분포 이동이다. v1.1에는 `runs/cont_5b_mix/` 안에 사후 full-val / HellaSwag-step JSON이 없다. 그 체크포인트의 다운스트림 점수는 [`benchmarks/`](../benchmarks/)에만 있다.
+Edu 검증 CE가 3.32에서 3.47로 상승한 것은 예상된 분포 이동의 결과다. v1.1에는 `runs/cont_5b_mix/` 내 사후 전체 검증 / HellaSwag 스텝별 JSON이 없다. 해당 체크포인트의 다운스트림 평가 점수는 [`benchmarks/`](../benchmarks/)에만 있다.
 
 ---
 
-## 10. English LM suite
+## 10. 영어 언어 모델 평가 스위트
 
-사전학습 후 두 체크포인트를 프로토콜 **`english-lm-suite-v1`**로 제로샷 채점했다. split·프롬프트·채점식은 [`benchmarks/REPORT.md`](../benchmarks/REPORT.md)와 `src/basikgpt/evaluation/`에 동결되어 있다. lm-eval-harness는 의존성이 아니다. 다른 논문 발표 숫자는 섞지 않았다.
+사전학습 후 두 체크포인트를 **`english-lm-suite-v1`** 프로토콜로 제로샷 평가했다. 데이터 분할, 프롬프트, 채점식은 [`benchmarks/REPORT.md`](../benchmarks/REPORT.md)와 `src/basikgpt/evaluation/`에 고정되어 있다. 이 구현은 lm-eval-harness에 의존하지 않으며, 다른 논문에 보고된 수치는 함께 사용하지 않았다.
 
-토크나이저와 사전학습 데이터는 모델마다 다르다. **공유 프로토콜 아래의 베이스라인이다.**
+토크나이저와 사전학습 데이터는 모델마다 다르다. **따라서 이 결과는 공통 프로토콜에 따른 기준 비교다.**
 
-| Task | Split | Primary metric | n | Chance (not subtracted) |
+| Task | Split | Primary metric | n | 무작위 추측 확률(감산하지 않음) |
 | --- | --- | --- | ---: | --- |
 | HellaSwag | validation | acc_norm (mean completion LL) | 10,042 | 25% |
 | LAMBADA (OpenAI) | test | last-word greedy accuracy | 5,153 | open-vocab |
@@ -354,11 +354,11 @@ Edu val CE 3.32 → 3.47 상승은 예상된 분포 이동이다. v1.1에는 `ru
 | WinoGrande | validation (`winogrande_xl`) | acc_raw | 1,267 | 50% |
 | ARC-Easy | test | acc_norm | 2,376 | 1/N (typically 25%) |
 
-객관식은 context와 `" " + ending`을 따로 인코딩해 이어 붙이고, 필요하면 context를 왼쪽에서 자르며 **choice 토큰만** 채점한다. `acc_raw`는 로그우도 합, `acc_norm`은 평균. LAMBADA는 마지막 공백으로 나누고 마지막 단어 전체의 greedy 토큰 일치를 요구한다.
+객관식 평가는 context와 `" " + ending`을 각각 인코딩한 뒤 이어 붙이고, 필요한 경우 context의 왼쪽을 잘라 **선택지(choice) 토큰만** 채점한다. `acc_raw`는 로그우도의 총합이며, `acc_norm`은 평균 로그우도이다. LAMBADA는 마지막 공백을 기준으로 분리한 뒤 마지막 단어 전체에 대해 greedy 토큰 일치를 요구한다.
 
-두 forward 경로는 프롬프트와 argmax 규칙을 공유한다: GPT-2 경로(basikGPT `.pt`와 공식 `gpt2`, tiktoken `gpt2`)와 SmolLM2 / Pythia / Qwen용 `AutoModelForCausalLM`. 토큰화는 맞추지 않았으므로 점수는 프로토콜 비교이지, 토큰 일치 perplexity가 아니다.
+두 순전파 경로는 프롬프트와 argmax 규칙을 공유한다. 한 경로는 tiktoken `gpt2` 토크나이저를 사용하는 basikGPT `.pt` 체크포인트와 공식 `gpt2`를 처리하고, 다른 경로는 SmolLM2, Pythia, Qwen에 `AutoModelForCausalLM`을 사용한다. 토큰화는 일치시키지 않았으므로 점수는 동일 프로토콜 아래에서 비교할 수 있지만, 동일 토큰화 조건의 퍼플렉시티를 비교한 것은 아니다.
 
-체크포인트: v1.0 `runs/main_2p5b/step-00038147.pt`, v1.1 `runs/cont_5b_mix/step-00076294.pt`. 중간 100M / 500M / 1B는 이 스위트에 없다.
+평가한 체크포인트는 v1.0 `runs/main_2p5b/step-00038147.pt`와 v1.1 `runs/cont_5b_mix/step-00076294.pt`이다. 중간 단계의 100M / 500M / 1B 체크포인트는 본 평가 스위트에 포함되지 않는다.
 
 | Model | Params | Corpus | HS acc_norm | LAMBADA | PIQA | WG | ARC-E | Avg |
 | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -371,7 +371,7 @@ Edu val CE 3.32 → 3.47 상승은 예상된 분포 이동이다. v1.1에는 `ru
 | Pythia-410M | 405M | The Pile | 39.18% | 47.33% | 67.68% | 51.14% | 45.12% | 50.09% |
 | Qwen2.5-0.5B | 494M | Qwen2.5 mix | 51.26% | 51.99% | 70.18% | 55.64% | 57.83% | 57.38% |
 
-WG는 acc_raw, 나머지 열은 스위트 primary metric. Avg는 그 다섯 값의 단순 평균.
+WG 열은 `acc_raw`를 나타내며, 나머지 열은 평가 스위트의 주요 지표(primary metric)이다. Avg는 이들 다섯 개 지표의 단순 산술평균이다.
 
 ![english-lm-suite-v1 grouped comparison](whitepaper/figures/grouped.png)
 
@@ -379,13 +379,13 @@ WG는 acc_raw, 나머지 열은 스위트 primary metric. Avg는 그 다섯 값�
 
 ![HellaSwag acc_norm vs parameter count](whitepaper/figures/hellaswag_vs_size.png)
 
-**점수 읽기.**
+**점수 해석.**
 
-- **v1.1 vs v1.0.** LAMBADA **+3.47 pp**(19.58 → 23.05): FineWeb 산문이 last-word 예측을 의도한 방향으로 움직였다. ARC-Easy **−4.50 pp**(43.01 → 38.51): Edu에 맞던 과학 문항 우위가 옅어졌다. HellaSwag −0.65 pp. PIQA와 WinoGrande 변동은 0.4 pp 미만.
-- **공식 GPT-2 Small 대비.** 같은 디코더, 같은 tiktoken, 같은 completion NLL. primary에서 gpt2를 이긴 것은 v1.0 ARC-Easy **+4.88 pp**뿐이다. LAMBADA는 여전히 크게 낮다(v1.0 −11.35 pp, v1.1 −7.88 pp). HellaSwag는 약간 아래(v1.0 −0.97 pp, v1.1 −1.62 pp).
-- **HellaSwag ~29%.** 우연 25% 위, gpt2·Pythia-160M과 같은 띠, SmolLM2-135M 42.67%보다 훨씬 아래. 가까운 파라미터 수가 가까운 데이터 예산을 뜻하지 않는다.
+- **v1.1과 v1.0 비교.** LAMBADA는 **+3.47 pp**(19.58 → 23.05) 상승했다. FineWeb 연속 학습과 마지막 단어 예측 성능 향상이 함께 관찰됐다. ARC-Easy는 **−4.50 pp**(43.01 → 38.51) 하락해 Edu 중심 과학 문항에서의 우위가 줄었다. HellaSwag는 0.65 pp 하락했으며, PIQA와 WinoGrande의 변동은 0.4 pp 미만이었다.
+- **공식 GPT-2 Small과 비교.** 모델들은 동일한 디코더 아키텍처와 tiktoken 토크나이저, 완성문 NLL 채점 방식을 사용한다. 주요 지표에서 gpt2를 앞선 경우는 v1.0의 ARC-Easy **+4.88 pp**뿐이다. LAMBADA는 여전히 크게 낮고(v1.0 −11.35 pp, v1.1 −7.88 pp), HellaSwag도 약간 낮다(v1.0 −0.97 pp, v1.1 −1.62 pp).
+- **HellaSwag 약 29%.** 무작위 추측 수준인 25%보다는 높고 gpt2·Pythia-160M과 비슷한 범위에 있지만, SmolLM2-135M의 42.67%보다는 훨씬 낮다. 파라미터 수가 비슷하더라도 학습 데이터 예산은 크게 다를 수 있다.
 - **WinoGrande.** 여덟 모델 모두 49.5–55.6%. n=1,267에서 50%의 표준오차는 약 1.4 pp라 50.51%와 50.83%는 우연과 구분되지 않는다.
-- **규모 사다리.** SmolLM2-360M과 Qwen2.5-0.5B는 124M GPT-2 급보다 분명히 위다. 예상된 믹스·스케일 차이다.
+- **모델 규모별 경향.** SmolLM2-360M과 Qwen2.5-0.5B는 124M GPT-2급보다 분명히 높은 점수를 보인다. 이는 데이터 구성과 모델 규모의 차이에 부합하는 결과다.
 
 공개 점수: [`benchmarks/REPORT.md`](../benchmarks/REPORT.md)와 [`benchmarks/summary.json`](../benchmarks/summary.json). 그림 재생성: `python scripts/plot_lm_suite_compare.py`.
 
@@ -395,11 +395,11 @@ WG는 acc_raw, 나머지 열은 스위트 primary metric. Avg는 그 다섯 값�
 
 ### 용도
 
-basikGPT-1은 연구·교육·추가 사전학습·파인튜닝용 영어 **base** 모델이다.
+basikGPT-1은 연구, 교육, 추가 사전학습, 파인튜닝을 위한 영어 **베이스(base) 모델**이다.
 
-FineWeb-Edu 체크포인트(ARC-Easy가 더 강함)는 **v1.0**, 5B 연속(LAMBADA는 오르고 ARC-Easy는 내린다)은 **v1.1**. 아래 예시는 v1.1을 로드한다.
+상대적으로 높은 ARC-Easy 점수가 필요한 경우에는 FineWeb-Edu 체크포인트인 **v1.0**을 사용한다. LAMBADA 점수가 높고 ARC-Easy 점수가 낮은 누적 5B토큰 연속 학습 체크포인트가 필요한 경우에는 **v1.1**을 사용한다. 아래 예시는 v1.1을 로드한다.
 
-아키텍처와 토크나이저는 GPT-2 호환이다. `transformers.AutoModelForCausalLM.from_pretrained`는 Hub 내보내기를 **로드한다**:
+아키텍처와 토크나이저는 GPT-2와 호환된다. Hub에 내보낸 모델은 `transformers.AutoModelForCausalLM.from_pretrained`로 직접 로드할 수 있다.
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -408,45 +408,45 @@ tok = AutoTokenizer.from_pretrained("project-iconik/basikGPT-1-v1.1")
 model = AutoModelForCausalLM.from_pretrained("project-iconik/basikGPT-1-v1.1")
 ```
 
-네이티브 `.pt`는 `basikgpt` 패키지로 로드한다. Hub 스냅샷은 `GPT2LMHeadModel` safetensors와 공식 GPT-2 토크나이저 파일이다. optimizer 상태는 포함하지 않는다.
+네이티브 `.pt` 체크포인트는 `basikgpt` 패키지로 로드한다. Hub 스냅샷에는 `GPT2LMHeadModel` safetensors와 공식 GPT-2 토크나이저 파일이 포함되며, 옵티마이저 상태는 포함되지 않는다.
 
 ### 한계
 
-- 124M / 2.5B–5B 토큰은 훨씬 큰 믹스로 학습한 현대 135M 모델을 따라가지 못한다.
-- 믹스는 영어 중심 웹 텍스트와 작은 수학 슬라이스다. 책만 모은 코퍼스, 대화, instruction, 선호 학습은 없다.
-- 루프 안 validation CE/PPL은 131,072 토큰 부분집합이며 packed validation 전체가 아니다.
-- FineWeb-Edu / FineWeb 스트림은 순차 prefix(`--no-shuffle`)이지 전체 크롤의 무작위 표본이 아니다.
-- PII 처리는 상위 FineWeb / FineWeb-Edu / OpenWebMath 파이프라인이 이미 적용한 것에 의존한다.
+- 2.5B–5B토큰으로 학습한 124M 모델이 본 비교에 포함된 135M 모델을 비롯해 훨씬 크고 다양한 코퍼스로 학습한 현대 모델과 동등한 성능을 내기는 어렵다.
+- 데이터 구성은 영어 중심 웹 텍스트와 소량의 수학 데이터로 이루어진다. 별도의 도서 코퍼스, 대화 데이터, 지시 데이터, 선호도 튜닝은 포함하지 않았다.
+- 학습 루프 내 검증 CE/PPL은 131,072토큰으로 구성된 부분집합을 사용하며, 패킹된 검증 데이터 전체를 사용하지는 않는다.
+- FineWeb-Edu / FineWeb 스트림은 전체 크롤의 무작위 표본이 아니라 순차적인 선두 구간(`--no-shuffle`)을 사용했다.
+- 원본 FineWeb, FineWeb-Edu, OpenWebMath 데이터셋 파이프라인에서 수행한 처리 외에 별도의 PII 필터링은 적용하지 않았다.
 - 학습 컨텍스트는 1024 토큰이다.
-- v1.1 FineWeb-Edu val CE는 val이 Edu로 남아서 v1.0보다 나쁘다.
+- v1.1의 FineWeb-Edu 검증 CE는 검증 데이터가 Edu로 유지됐기 때문에 v1.0보다 높다.
 - 자유 생성 샘플은 이 문서용으로 보관하지 않았다.
 
 ### 라이선스
 
-코드와 내보낸 가중치는 **Apache-2.0**. 학습 데이터에는 데이터셋 카드가 그대로 적용된다. 재배포 전에 각 카드를 확인하라.
+코드와 내보낸 가중치에는 **Apache-2.0** 라이선스가 적용된다. 학습 데이터에는 각 데이터셋 카드의 조건이 계속 적용되므로 재배포 전에 해당 조건을 확인해야 한다.
 
-| Source | License note |
+| 소스 | 라이선스 참고 사항 |
 | --- | --- |
 | FineWeb-Edu | ODC-By 1.0 |
 | FineWeb | ODC-By 1.0 |
-| OpenWebMath | see Hub dataset card |
-| GPT-2 tokenizer / architecture | follows the public GPT-2 artifacts |
+| OpenWebMath | Hub 데이터셋 카드 참조 |
+| GPT-2 토크나이저 / 아키텍처 | 공개 GPT-2 아티팩트에 수반되는 조건 참조 |
 
-이 문서는 새 라이선스를 고르지 않는다.
+본 문서는 새로운 라이선스를 지정하거나 변경하지 않는다.
 
 ---
 
 ## 12. 재현성
 
-| Step | Path |
+| 단계 | 경로 |
 | --- | --- |
 | Architecture / config | `src/basikgpt/config.py` (`gpt2_small`) |
 | Frozen single-GPU JSON | `configs/gpt2_small_fineweb_edu_single_gpu.json` |
 | FineWeb-Edu ingest | `scripts/prepare_fineweb_edu.py` → `data/fineweb-edu-2p5b/` |
 | HF corpus ingest | `scripts/prepare_hf_corpus.py` |
 | Mix interleave | `scripts/combine_shards.py` → `data/mix_5b_cont/` |
-| v1.0 train | `python scripts/train.py` with the CLI in [`docs/main_2p5b.md`](main_2p5b.md) |
-| v1.1 train | resume from `runs/main_2p5b/step-00038147.pt`; see `runs/cont_5b_mix/run.json` |
+| v1.0 학습 | [`docs/main_2p5b.md`](main_2p5b.md)의 CLI로 `python scripts/train.py` 실행 |
+| v1.1 학습 | `runs/main_2p5b/step-00038147.pt`에서 재개. `runs/cont_5b_mix/run.json` 참조 |
 | Full val CE/PPL | `scripts/evaluate.py` |
 | HellaSwag (standalone) | `scripts/evaluate_hellaswag.py` |
 | English suite | `scripts/evaluate_lm_suite.py` |
@@ -479,24 +479,24 @@ python scripts/evaluate_lm_suite.py --protocol-all --device cuda
 python scripts/plot_lm_suite_compare.py
 ```
 
-`data/` 아래 큰 샤드와 `runs/` 아래 `.pt`는 gitignore된다. 프로덕션 2.5B 수집은 디스크와 Hub 스트림이 필요하다.
+`data/` 하위의 대용량 샤드 파일과 `runs/` 하위의 `.pt` 체크포인트 파일은 Git 추적에서 제외(.gitignore)된다. 2.5B 프로덕션 데이터 인제스트를 재현하려면 충분한 디스크 공간과 Hugging Face Hub 스트리밍 연결이 필요하다.
 
-기록된 git SHA(둘 다 dirty):
+기록된 Git SHA(두 실행 모두 커밋되지 않은 변경 사항 포함):
 
-| Artifact | Commit |
+| 아티팩트 | 커밋 |
 | --- | --- |
-| v1.0 train / post-hoc val | `95e63c325591a96c1a71a288f03742049a589d04` |
-| v1.1 train / english-lm-suite-v1 | `ff8b2c0284668c3333d268b27864460e2b1db5f7` |
+| v1.0 학습 / 사후 검증 | `95e63c325591a96c1a71a288f03742049a589d04` |
+| v1.1 학습 / english-lm-suite-v1 | `ff8b2c0284668c3333d268b27864460e2b1db5f7` |
 
-dirty 트리는 SHA가 출처이지 비트 단위 레시피 잠금이 아님을 뜻한다.
+작업 트리에 커밋되지 않은 변경 사항이 있으므로 해당 SHA는 코드의 출처를 나타낼 뿐, 전체 학습 레시피의 비트 단위 재현성을 보장하지 않는다.
 
 ---
 
 ## 13. 결론
 
-basikGPT-1은 완결된 GPT-2 Small 사전학습이다: 검증된 124,439,808 파라미터 디코더, GPT-2 BPE, 문서화된 FineWeb-Edu 2.5B 단계(20.09 tokens/parameter, 8.18 GPU hours, full-val PPL 25.92), 문서화된 FineWeb+OpenWebMath 5B 연속, 저장소 안 제로샷 영어 스위트.
+basikGPT-1은 두 단계로 구성된 완결된 GPT-2 Small 사전학습 프로젝트다. 기준 모델과의 일치가 검증된 124,439,808파라미터 디코더와 GPT-2 BPE를 구현했으며, FineWeb-Edu 2.5B토큰 단계(파라미터당 20.09토큰, 8.18 GPU 시간, 전체 검증 PPL 25.92)와 FineWeb+OpenWebMath를 사용한 누적 5B토큰 연속 학습 단계를 문서화했다. 저장소 내에는 제로샷 영어 평가 스위트도 포함되어 있다.
 
-v1.0은 HellaSwag에서 공식 gpt2 옆, ARC-Easy에서는 위, LAMBADA가 가장 큰 간격이다. v1.1은 그 LAMBADA 간격의 일부를 메우고 ARC-Easy 우위를 돌려준다. 이 프로토콜의 같은 크기 공개 디코더는 가깝고, 더 큰 현대 믹스로 학습한 135M–0.5B는 위에 있다. 예상된 규모·데이터 사다리다.
+v1.0은 HellaSwag에서 공식 gpt2와 비슷한 점수를 기록했고 ARC-Easy에서는 더 높은 점수를 보였지만, LAMBADA에서는 가장 큰 차이가 남았다. v1.1은 LAMBADA 차이를 일부 줄인 대신 ARC-Easy의 우위를 잃었다. 일부 비슷한 크기의 기존 디코더는 이 프로토콜에서 대체로 비슷한 범위에 있지만, SmolLM2-135M과 더 큰 현대 모델은 훨씬 높은 점수를 기록한다. 이러한 경향은 모델 규모와 학습 데이터의 차이에 부합한다.
 
 ---
 
@@ -520,7 +520,7 @@ v1.0은 HellaSwag에서 공식 gpt2 옆, ARC-Easy에서는 위, LAMBADA가 가�
 - basikGPT-1 v1.1 weights. https://huggingface.co/project-iconik/basikGPT-1-v1.1
 - basikGPT code. https://github.com/project-iconik/basikGPT
 
-스위트 프로토콜: [`benchmarks/REPORT.md`](../benchmarks/REPORT.md). 기계 판독 롤업: [`benchmarks/summary.json`](../benchmarks/summary.json).
+평가 스위트 프로토콜은 [`benchmarks/REPORT.md`](../benchmarks/REPORT.md)에, 기계 판독 가능한 요약은 [`benchmarks/summary.json`](../benchmarks/summary.json)에 제공한다.
 
 ```
 @software{basikgpt,
@@ -533,11 +533,13 @@ v1.0은 HellaSwag에서 공식 gpt2 옆, ARC-Easy에서는 위, LAMBADA가 가�
 
 ---
 
-## Appendix
+<a id="appendix"></a>
+
+## 부록
 
 ### A.1 고유 파라미터 분해
 
-tied 입력 임베딩 / LM head는 한 번만 센다. `lm_head`(bias false)를 제외한 Linear·LayerNorm bias를 포함한다.
+가중치를 공유하는 입력 임베딩과 LM 헤드는 중복 집계하지 않고 한 번만 계산한다. 편향을 사용하지 않는 `lm_head`를 제외하고 Linear와 LayerNorm의 편향을 포함한다.
 
 | Block | Count |
 | --- | ---: |
@@ -548,4 +550,4 @@ tied 입력 임베딩 / LM head는 한 번만 센다. `lm_head`(bias false)를 �
 | 12 × 2 LayerNorm (768+768) + final LayerNorm | 38,400 |
 | **Unique total** | **124,439,808** |
 
-untied 합계는 163,037,184. 실측 고유 파라미터 수는 이 표와 같다.
+가중치 비공유(untied) 시 총 파라미터 수는 163,037,184개이며, 실측된 고유 파라미터 수는 본 표와 일치한다.

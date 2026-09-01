@@ -2,17 +2,17 @@
 
 [English](README.md) · **日本語** · [한국어](README.ko.md)
 
-basikGPT は **事前学習済み GPT-2 Small decoder-only Transformer**（124,439,808 ユニークパラメータ）と、それを学習した PyTorch コードである。**base** モデルである。
+basikGPT は、**事前学習済み GPT-2 Small デコーダ専用 Transformer**（124,439,808 個の固有パラメータ）と、その学習に使用した PyTorch コードベースで構成されています。本モデルは事前学習済みの **ベース（base）モデル**です。
 
 - 重み: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0)（2.5B トークン）、[`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1)（5B トークン）
-- ホワイトペーパー: [`docs/whitepaper.md`](docs/whitepaper.md)（[JA](docs/whitepaper.ja.md)、[KO](docs/whitepaper.ko.md)）
-- English LM suite: [`benchmarks/REPORT.md`](benchmarks/REPORT.md)
+- ホワイトペーパー: [`docs/whitepaper.ja.md`](docs/whitepaper.ja.md)（[EN](docs/whitepaper.md)、[KO](docs/whitepaper.ko.md)）
+- 英語言語モデル評価スイート: [`benchmarks/REPORT.md`](benchmarks/REPORT.md)
 
-本番ラン `main_2p5b`: 38,147 steps、**2,500,001,792** トークン（約 20.09 tokens/parameter）、系列長 **1024**。継続 `cont_5b_mix` はそのチェックポイントを FineWeb 2.25B + OpenWebMath 0.25B で生涯 **5,000,003,584** トークン（step 76,294）まで進める。
+本番学習 `main_2p5b` は、系列長 **1024** で 38,147 ステップ、**2,500,001,792** トークン（1 パラメータあたり約 20.09 トークン）を学習しました。継続学習 `cont_5b_mix` はそのチェックポイントから FineWeb 2.25B + OpenWebMath 0.25B で学習を続け、76,294 ステップで**累計 5,000,003,584 トークン**に達しました。
 
-## Quick start
+## クイックスタート
 
-Python 3.12+ と PyTorch 2.1+。CUDA は先に [pytorch.org](https://pytorch.org/get-started/locally/) から PyTorch を入れる。
+Python 3.12+ と PyTorch 2.1+。CUDA を利用する場合は、事前に [pytorch.org](https://pytorch.org/get-started/locally/) から環境に合った PyTorch をインストールしてください。
 
 ```bash
 git clone https://github.com/project-iconik/basikGPT.git
@@ -20,7 +20,7 @@ cd basikGPT
 pip install -e ".[dev]"
 ```
 
-アーキテクチャとトークナイザは GPT-2 互換である。FineWeb-Edu チェックポイント（ARC-Easy が強い）は **v1.0**、5B 継続（LAMBADA は上がり ARC-Easy は下がる）は **v1.1**。下の例は v1.1 を読む。`transformers.AutoModelForCausalLM.from_pretrained` は Hub 出力を **読み込める**:
+アーキテクチャとトークナイザは GPT-2 互換です。ARC-Easy で相対的に高い性能が必要な場合は FineWeb-Edu チェックポイントの **v1.0** を、LAMBADA は向上した一方で ARC-Easy は低下した累計 5B トークンの継続学習モデルが必要な場合は **v1.1** を使用してください。以下の例では v1.1 を読み込みます。Hub に公開されているモデルは `transformers.AutoModelForCausalLM.from_pretrained` で直接読み込めます。
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -29,22 +29,22 @@ tok = AutoTokenizer.from_pretrained("project-iconik/basikGPT-1-v1.1")
 model = AutoModelForCausalLM.from_pretrained("project-iconik/basikGPT-1-v1.1")
 ```
 
-ネイティブ `.pt` は `basikgpt` パッケージで読む。`scripts/generate.py` はローカルチェックポイント（または公式 `openai-community/gpt2` 向け `--hf-reference`）を取り、Hub id は取らない。
+ネイティブの `.pt` チェックポイントは `basikgpt` パッケージを用いて読み込みます。`scripts/generate.py` は Hub ID ではなく、ローカルチェックポイントのパスを受け取ります。公式 `openai-community/gpt2` を参照モデルとして使用する場合は `--hf-reference` を指定します。
 
 ```bash
 python scripts/generate.py --checkpoint runs/main_2p5b/step-00038147.pt --prompt "The history of artificial intelligence"
 ```
 
-| Extra | Install | Use |
+| 追加機能 | インストール | 用途 |
 | --- | --- | --- |
 | `data` | `pip install -e ".[data]"` | tiktoken、FineWeb 取り込み（`datasets`、`pyarrow`） |
-| `dev` | `pip install -e ".[dev]"` | テスト、Hub 出力/読込、および `data` |
+| `dev` | `pip install -e ".[dev]"` | テスト、Hub エクスポート/ロード、および `data` |
 
-コアのモデルと学習コードの依存は `torch` と `numpy` のみ。
+コアモデルおよび学習コードの依存関係は `torch` と `numpy` のみです。
 
-## Results
+## 結果
 
-ゼロショット English LM suite（`english-lm-suite-v1`）: 全行で同じ split・プロンプト・採点。トークン数とアーキテクチャは **揃えていない**。全表: [`benchmarks/REPORT.md`](benchmarks/REPORT.md)。
+ゼロショット英語言語モデル評価スイート（`english-lm-suite-v1`）では、すべての行に同じデータ分割、プロンプト、採点基準を適用しました。トークン数とアーキテクチャは **揃えていません**。結果の全一覧は [`benchmarks/REPORT.md`](benchmarks/REPORT.md) を参照してください。
 
 | Model | size | HS | LAMBADA | PIQA | WG | ARC-E | Avg |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -55,16 +55,16 @@ python scripts/generate.py --checkpoint runs/main_2p5b/step-00038147.pt --prompt
 | EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 | 36.57 |
 | chance | | 25 | — | 50 | 50 | ~25 | — |
 
-WG は acc_raw、他列はスイートの primary metric。Avg はその 5 個の単純平均。本プロトコルの同規模公開デコーダは近く、現代的な 135M ミックスは上。WinoGrande は偶然水準。手法と全比較: [ホワイトペーパー](docs/whitepaper.ja.md)。
+WG には `acc_raw` を使用し、その他の列には評価スイートの主要指標を使用しています。Avg はこれら 5 指標の単純平均です。一部の同規模の従来型デコーダは本プロトコルでおおむね近い範囲にありますが、現代的なデータで学習された SmolLM2-135M は大幅に高いスコアを示します。WinoGrande はランダム予測と同水準です。評価手法と完全な比較は [ホワイトペーパー](docs/whitepaper.ja.md) を参照してください。
 
-v1.0 言語モデル指標（ループ内 val は 131,072 トークン、full val は事後）:
+v1.0 の言語モデル指標（学習ループ内の検証は 131,072 トークンを対象とし、全検証は学習完了後に測定）:
 
 | | |
 | --- | --- |
 | Tokens | 2,500,001,792 |
-| Last train CE | 3.2830 |
-| Full val CE / PPL | 3.2548 / 25.9151 |
-| Wall time | 29,462.59 s（約 8.18 GPU hours） |
+| 最終学習 CE | 3.2830 |
+| 全検証 CE / PPL | 3.2548 / 25.9151 |
+| 実経過時間 | 29,462.59 秒（約 8.18 GPU 時間） |
 | Training-only tok/s | 85,076 |
 
 ```bash
@@ -73,9 +73,9 @@ python scripts/evaluate_lm_suite.py --checkpoint runs/main_2p5b/step-00038147.pt
 python scripts/evaluate_lm_suite.py --hf-model openai-community/gpt2
 ```
 
-## Architecture
+## アーキテクチャ
 
-GPT-2 因果デコーダ: Pre-Norm、LayerNorm（ε = 1e-5）、学習済み絶対位置、因果的 multi-head self-attention、GELU tanh 近似、Linear と LayerNorm の bias、tied embeddings。ブロック内部: [ホワイトペーパー §4](docs/whitepaper.ja.md#4-モデル)。
+GPT-2 因果デコーダは、事前正規化（Pre-Norm）、LayerNorm（ε = 1e-5）、学習可能な絶対位置埋め込み、因果的マルチヘッド自己注意、GELU の tanh 近似、Linear と LayerNorm のバイアス、共有埋め込みを使用します。ブロック内部は [ホワイトペーパー §4](docs/whitepaper.ja.md#4-モデル) を参照してください。
 
 ```mermaid
 flowchart TB
@@ -94,7 +94,7 @@ flowchart TB
 
 | | `gpt2_small` |
 | --- | --- |
-| Unique parameters | 124,439,808 |
+| 固有パラメータ | 124,439,808 |
 | `vocab_size` | 50,257 |
 | `d_model` | 768 |
 | `n_layers` | 12 |
@@ -102,19 +102,19 @@ flowchart TB
 | `head_dim` | 64 |
 | `d_ff` | 3,072 |
 | `context_length` | 1,024 |
-| Training sequence length | **1024** |
+| 学習系列長 | **1024** |
 | `tie_word_embeddings` | true |
-| Training dropout | **0.0**（`GPTConfig` 既定は 0.1） |
+| 学習時のドロップアウト | **0.0**（`GPTConfig` の既定値は 0.1） |
 
-`GPTConfig` は `gpt2_medium`、`gpt2_large`、`gpt2_xl` も定義する。それらは設定のみ。このリポジトリが学習するのは `gpt2_small`。
+`GPTConfig` は `gpt2_medium`、`gpt2_large`、`gpt2_xl` も定義します。これらは設定プリセットのみであり、本リポジトリで実際に学習したモデルは `gpt2_small` です。
 
-## Tokenizer
+## トークナイザ
 
-GPT-2 byte-level BPE（`tiktoken.get_encoding("gpt2")`）。語彙 50,257。End-of-text id 50,256。学習取り込みは `encode_ordinary()` のあと文書ごとに EOT を 1 個付与する。Hub 出力は公式 GPT-2 トークナイザファイルを同梱する。詳細: [ホワイトペーパー §5](docs/whitepaper.ja.md#5-トークナイザ)。
+GPT-2 のバイトレベル BPE（`tiktoken.get_encoding("gpt2")`）を使用します。語彙サイズは 50,257、文書終了トークン ID は 50,256 です。学習データの取り込みでは `encode_ordinary()` を適用し、各文書の末尾に EOT トークンを 1 つ付与します。Hub エクスポートには公式 GPT-2 トークナイザファイルが同梱されます。詳細は [ホワイトペーパー §5](docs/whitepaper.ja.md#5-トークナイザ) を参照してください。
 
-## Data
+## データ
 
-v1.0 は FineWeb-Edu（`sample-10BT`）。v1.1 は FineWeb 2.25B + OpenWebMath 0.25B で継続（生涯ミックス: Edu 50% + FineWeb 45% + OpenWebMath 5%）。Hub ストリームは uint16 `.npy` シャードにパックする。生ダンプとシャードはローカル `data/` にあり git には入らない。
+v1.0 は FineWeb-Edu（`sample-10BT`）で学習しました。v1.1 は FineWeb 2.25B + OpenWebMath 0.25B で継続学習しました（累積構成: Edu 50% + FineWeb 45% + OpenWebMath 5%）。Hub ストリームは uint16 `.npy` シャードにパックします。生データおよびシャードファイルはローカル `data/` 配下に保存され、`.gitignore` により Git の追跡対象外となります。
 
 ```mermaid
 flowchart LR
@@ -125,17 +125,17 @@ flowchart LR
   doc --> enc --> shard --> train
 ```
 
-ミックス表とライセンス: [ホワイトペーパー §6](docs/whitepaper.ja.md#6-データ)。
+データ構成の全表とライセンスは [ホワイトペーパー §6](docs/whitepaper.ja.md#6-データ) を参照してください。
 
-## Reproduce
+## 再現
 
 ### A. 公開重みを使う（既定）
 
-[Quick start](#quick-start) を見よ。
+[クイックスタート](#クイックスタート) を参照してください。
 
 ### B. FineWeb-Edu 2.5B を再学習する
 
-ディスク数十 GB と Hugging Face Hub ストリームが必要。`scripts/train.py` は凍結 JSON を読まない。本番は同等 CLI フラグを使った。
+数十 GB のディスク容量と Hugging Face Hub のストリーミング接続が必要です。`scripts/train.py` は設定 JSON を直接読み込まず、本番実行時はこれと同等の CLI 引数を指定して学習を行いました。
 
 ```bash
 python scripts/prepare_fineweb_edu.py \
@@ -155,45 +155,45 @@ python scripts/train.py \
   --output-dir runs/main_2p5b
 ```
 
-設定 [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json) は凍結レシピを記録する（provisional）。本番のピーク CUDA allocated は **9,523.61 MiB**。
+設定 [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json) は、暫定学習レシピのスナップショットを記録しています。本番実行時の最大 CUDA 割り当てメモリ量は **9,523.61 MiB** でした。
 
-各 `train.py` 起動は `runs/<name>/` に書く。公開された手法と指標は [ホワイトペーパー](docs/whitepaper.ja.md) にある。ステップログ（`metrics.jsonl`）とシャードマニフェスト（`dataset.json`）は gitignore される。
+各 `train.py` 実行結果は `runs/<name>/` 配下に保存されます。公開された手法と指標は [ホワイトペーパー](docs/whitepaper.ja.md) で確認できます。ステップログ（`metrics.jsonl`）とシャードマニフェスト（`dataset.json`）は、`.gitignore` により Git の追跡対象外となります。
 
-### C. Tiny CPU スモーク（実験のみ）
+### C. Tiny CPU スモークテスト（実験および検証用）
 
-先にスモーク用シャードが必要。
+先にスモーク用シャードディレクトリが必要です。
 
 ```bash
 python scripts/prepare_fineweb_edu.py --output data/fineweb-edu-smoke
 python scripts/train.py --model-preset tiny --max-steps 20 --device cpu --data-dir data/fineweb-edu-smoke
 ```
 
-## Layout
+## リポジトリ構成
 
 - `src/basikgpt/model` — GPT-2 バックボーンと因果 LM
 - `src/basikgpt/data` — トークナイザ、シャーディング、FineWeb パイプライン
-- `src/basikgpt/training` — optimizer、scheduler、trainer、チェックポイント
-- `src/basikgpt/generation` — KV キャッシュ生成
+- `src/basikgpt/training` — オプティマイザ、スケジューラ、トレーナ、チェックポイント
+- `src/basikgpt/generation` — KV キャッシュを用いたテキスト生成
 - `src/basikgpt/evaluation` — val CE/PPL と English LM suite
-- `src/basikgpt/conversion` — Hugging Face GPT-2 入出力
+- `src/basikgpt/conversion` — Hugging Face GPT-2 形式のインポート/エクスポート
 - `scripts` — train、generate、evaluate、prepare、export
-- `configs` — 凍結済み単一 GPU JSON
+- `configs` — 凍結済み単一 GPU 設定 JSON
 - `docs` — 技術ホワイトペーパー（EN / JA / KO）とレシピメモ
-- `benchmarks` — English LM suite プロトコルと点数
+- `benchmarks` — English LM suite プロトコルと評価スコア
 - `runs` — 公開 `run.json` / `summary.json`（チェックポイントはローカル）
 
-## Tests
+## テスト
 
 ```bash
 pip install -e ".[dev]"
 pytest tests/ -q
 ```
 
-## Contributing
+## コントリビューション
 
-Issue と pull request を歓迎する。変更を送る前に `pytest tests/ -q` を実行すること。
+Issue と Pull Request を歓迎します。変更を提出する前に `pytest tests/ -q` を実行してください。
 
-## Citation
+## 引用
 
 ```
 @software{basikgpt,
@@ -204,6 +204,6 @@ Issue と pull request を歓迎する。変更を送る前に `pytest tests/ -q
 }
 ```
 
-## License
+## ライセンス
 
-コードと出力重みは **Apache-2.0**。FineWeb / FineWeb-Edu は **ODC-By 1.0**。OpenWebMath は Hub データセットカードを見よ。再配布前に各カードを確認すること。詳細: [ホワイトペーパー §11](docs/whitepaper.ja.md#11-想定用途限界ライセンス)。
+コードおよびエクスポートされた重みには **Apache-2.0** ライセンスが適用されます。FineWeb と FineWeb-Edu には引き続き **ODC-By 1.0** が適用されます。OpenWebMath の条件は Hub データセットカードを参照してください。再配布前に各データセットカードを確認してください。詳細は [ホワイトペーパー §11](docs/whitepaper.ja.md#11-想定用途限界ライセンス) を参照してください。

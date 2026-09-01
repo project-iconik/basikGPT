@@ -45,7 +45,7 @@ Git: `95e63c325591a96c1a71a288f03742049a589d04` (dirty=True)
 | Field | Value |
 |---|---|
 | max_steps | 38,147 |
-| Token budget (planned actual) | 2,500,001,792 |
+| Planned executed token count | 2,500,001,792 |
 | Token budget (requested) | 2,500,000,000 |
 | Overshoot tokens | 1,792 |
 | Tokens / optimizer step | 65,536 |

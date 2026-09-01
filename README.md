@@ -2,13 +2,13 @@
 
 **English** · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-basikGPT is a **pretrained GPT-2 Small decoder-only Transformer** (124,439,808 unique parameters) plus the PyTorch code that trained it. It is a **base** model.
+basikGPT is a **pretrained GPT-2 Small decoder-only Transformer** (124,439,808 unique parameters), along with the PyTorch code used to train it. It is a **base** model.
 
 - Weights: [`project-iconik/basikGPT-1-v1.0`](https://huggingface.co/project-iconik/basikGPT-1-v1.0) (2.5B tokens), [`project-iconik/basikGPT-1-v1.1`](https://huggingface.co/project-iconik/basikGPT-1-v1.1) (5B tokens)
 - Whitepaper: [`docs/whitepaper.md`](docs/whitepaper.md) ([JA](docs/whitepaper.ja.md), [KO](docs/whitepaper.ko.md))
 - English LM suite: [`benchmarks/REPORT.md`](benchmarks/REPORT.md)
 
-Production run `main_2p5b`: 38,147 steps, **2,500,001,792** tokens (~20.09 tokens/parameter), trained at sequence length **1024**. Continuation `cont_5b_mix` resumes that checkpoint to lifetime **5,000,003,584** tokens (step 76,294) on FineWeb 2.25B + OpenWebMath 0.25B.
+Production run `main_2p5b`: 38,147 steps, **2,500,001,792** tokens (~20.09 tokens/parameter), trained at sequence length **1024**. The continuation run `cont_5b_mix` resumes from that checkpoint on FineWeb 2.25B + OpenWebMath 0.25B, bringing the lifetime total to **5,000,003,584** tokens (step 76,294).
 
 ## Quick start
 
@@ -20,7 +20,7 @@ cd basikGPT
 pip install -e ".[dev]"
 ```
 
-Architecture and tokenizer match GPT-2. Use **v1.0** for the FineWeb-Edu checkpoint (stronger ARC-Easy). Use **v1.1** for the 5B continuation (higher LAMBADA, lower ARC-Easy). The snippet below loads v1.1. `transformers.AutoModelForCausalLM.from_pretrained` **does** load the Hub export:
+Architecture and tokenizer match GPT-2. Use **v1.0** for the FineWeb-Edu checkpoint (stronger performance on ARC-Easy). Use **v1.1** for the 5B continuation (higher LAMBADA accuracy, lower ARC-Easy). The snippet below loads v1.1. The Hub export can be loaded directly with `transformers.AutoModelForCausalLM.from_pretrained`:
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -55,7 +55,7 @@ Zero-shot English LM suite (`english-lm-suite-v1`): same splits, prompts, and sc
 | EleutherAI/pythia-160m | 162M | 29.26 | 11.57 | 58.32 | 49.49 | 34.22 | 36.57 |
 | chance | | 25 | — | 50 | 50 | ~25 | — |
 
-WG is acc_raw; other columns are the suite primary metric. Avg is the unweighted mean of those five primaries. Same-size public decoders in this protocol are close; modern 135M mixes score higher. WinoGrande is chance-level. Methods and the full comparison: [whitepaper](docs/whitepaper.md).
+WG is acc_raw; other columns report the suite's primary metrics. Avg is the unweighted mean of these five primary metrics. Some older, similarly sized decoders occupy a broadly comparable range under this protocol, while the modern SmolLM2-135M model scores substantially higher. WinoGrande is chance-level. Methods and the full comparison: [whitepaper](docs/whitepaper.md).
 
 v1.0 language-model metrics (in-loop val uses 131,072 tokens; full val is post-hoc):
 
@@ -106,7 +106,7 @@ flowchart TB
 | `tie_word_embeddings` | true |
 | Training dropout | **0.0** (`GPTConfig` default is 0.1) |
 
-`GPTConfig` also defines `gpt2_medium`, `gpt2_large`, and `gpt2_xl`. Those are configuration only. This repository trains `gpt2_small`.
+`GPTConfig` also defines `gpt2_medium`, `gpt2_large`, and `gpt2_xl`. Those are configuration presets only. This repository trains `gpt2_small`.
 
 ## Tokenizer
 
@@ -114,7 +114,7 @@ GPT-2 byte-level BPE via `tiktoken.get_encoding("gpt2")`. Vocabulary 50,257. End
 
 ## Data
 
-v1.0 is FineWeb-Edu (`sample-10BT`). v1.1 continues on FineWeb 2.25B + OpenWebMath 0.25B (lifetime mix: Edu 50% + FineWeb 45% + OpenWebMath 5%). Hub streams are packed into uint16 `.npy` shards. Raw dumps and shards live under local `data/` and are not in git.
+v1.0 was trained on FineWeb-Edu (`sample-10BT`). v1.1 continues on FineWeb 2.25B + OpenWebMath 0.25B (lifetime mix: Edu 50% + FineWeb 45% + OpenWebMath 5%). Hub streams are packed into uint16 `.npy` shards. Raw dumps and shards live under local `data/` and are not in git.
 
 ```mermaid
 flowchart LR
@@ -135,7 +135,7 @@ See [Quick start](#quick-start).
 
 ### B. Retrain the 2.5B FineWeb-Edu run
 
-Needs tens of GB of disk and a Hugging Face Hub stream. `scripts/train.py` does not load the freeze JSON; production used equivalent CLI flags.
+Retraining requires tens of gigabytes of disk space and a Hugging Face Hub stream. `scripts/train.py` does not load the recipe snapshot JSON; production used equivalent CLI flags.
 
 ```bash
 python scripts/prepare_fineweb_edu.py \
@@ -155,11 +155,11 @@ python scripts/train.py \
   --output-dir runs/main_2p5b
 ```
 
-Config [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json) records the frozen recipe (provisional). Measured peak CUDA allocated on the production run was **9,523.61 MiB**.
+Config [`configs/gpt2_small_fineweb_edu_single_gpu.json`](configs/gpt2_small_fineweb_edu_single_gpu.json) records a provisional snapshot of the training recipe. Measured peak allocated CUDA memory on the production run was **9,523.61 MiB**.
 
-Each `train.py` launch writes under `runs/<name>/`. Published methods and metrics are in the [whitepaper](docs/whitepaper.md). Step logs (`metrics.jsonl`) and shard manifests (`dataset.json`) are gitignored.
+Each `train.py` launch writes its outputs under `runs/<name>/`. Published methods and metrics are in the [whitepaper](docs/whitepaper.md). Step logs (`metrics.jsonl`) and shard manifests (`dataset.json`) are ignored by git (.gitignored).
 
-### C. Tiny CPU smoke (experiments only)
+### C. Tiny CPU smoke test (experiments only)
 
 Needs a smoke shard directory first.
 
@@ -206,4 +206,4 @@ Issues and pull requests are welcome. Please run `pytest tests/ -q` before sendi
 
 ## License
 
-Code and exported weights are **Apache-2.0**. FineWeb / FineWeb-Edu remain **ODC-By 1.0**. OpenWebMath: see the Hub dataset card. Check each card before redistribution. Details: [whitepaper §11](docs/whitepaper.md#11-intended-use-limitations-and-licenses).
+Code and exported weights are licensed under **Apache-2.0**. FineWeb and FineWeb-Edu remain subject to **ODC-By 1.0**. For OpenWebMath, see the Hub dataset card. Check each dataset card before redistribution. Details: [whitepaper §11](docs/whitepaper.md#11-intended-use-limitations-and-licenses).

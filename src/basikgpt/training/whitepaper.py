@@ -576,7 +576,7 @@ def format_whitepaper_markdown(snapshot: dict[str, Any]) -> str:
         "| Field | Value |",
         "|---|---|",
         f"| max_steps | {_fmt(training.get('max_steps'))} |",
-        f"| Token budget (planned actual) | {_fmt(budget.get('actual_token_budget'))} |",
+        f"| Planned executed token count | {_fmt(budget.get('actual_token_budget'))} |",
         f"| Token budget (requested) | {_fmt(budget.get('requested_token_budget'))} |",
         f"| Overshoot tokens | {_fmt(budget.get('overshoot_tokens'))} |",
         f"| Tokens / optimizer step | {_fmt(training.get('tokens_per_optimizer_step'))} |",
